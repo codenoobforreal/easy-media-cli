@@ -1,19 +1,17 @@
 mod cli;
-mod client;
-mod command_executor;
 mod common;
+mod error;
+mod event;
+mod executor;
 mod metadata;
-mod progress;
 mod task;
 mod ui;
 
-use crate::cli::run_cli;
 use anyhow::Result;
+use cli::run_cli;
 
-fn main() -> Result<()> {
-    if let Err(e) = run_cli() {
-        eprintln!("Error: {}", e.to_string());
-        return Err(e);
-    }
+#[tokio::main]
+async fn main() -> Result<()> {
+    run_cli().await?;
     Ok(())
 }

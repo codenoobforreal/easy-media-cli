@@ -14,17 +14,17 @@ struct Cli {
 }
 
 #[derive(Subcommand, Debug)]
-#[command(about = "Scene cut snap", long_about = None)]
+#[command(about, long_about = None)]
 enum Commands {
     /// Scene cut snap
     Scs(ScsArgs),
 }
 
-pub fn run_cli() -> Result<()> {
+pub async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Scs(args) => handle_scs_command(args)?,
+        Commands::Scs(args) => handle_scs_command(args).await?,
     }
 
     Ok(())
