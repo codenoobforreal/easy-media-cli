@@ -49,9 +49,12 @@ impl Thumbnail {
 
     fn build_thumbnail_command(&self) -> Command {
         let vf_str = match self.width {
-            None => format!("select='gt(scene,{:.1})'", self.scene_threshold),
+            None => format!(
+                "select='gt(scene,{:.1})',scale=in_range=auto:out_range=full,format=yuvj420p",
+                self.scene_threshold
+            ),
             Some(w) => format!(
-                "select='gt(scene,{:.1}),scale={w}:-2'",
+                "select='gt(scene,{:.1})',scale=in_range=auto:out_range=full,format=yuvj420p:{w}:-2",
                 self.scene_threshold
             ),
         };

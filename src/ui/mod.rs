@@ -52,7 +52,6 @@ impl Ui {
                             break;
                         }
                         Ok(_) => {}
-
                     }
                 }
             }
