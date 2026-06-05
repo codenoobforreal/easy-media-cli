@@ -75,6 +75,7 @@ impl Thumbnail {
         cmd
     }
 
+    /// When the frame is 0, the other progress fields are typically 'N/A', so parsing is not performed for this round.
     async fn send_progress(
         event_bus: EventBus,
         id: u64,
@@ -87,24 +88,34 @@ impl Thumbnail {
         let mut speed = None;
         let mut last_progress = Progress::default();
         while let Some(line) = line_reader.next_line().await.unwrap() {
-            if line.is_empty() {
+            let trim_line = line.trim();
+            if trim_line.is_empty() {
                 continue;
             }
-            let (key, value) = match line.split_once('=') {
-                Some(kv) => kv,
-                None => continue,
+            let (key, value) = match trim_line.split_once('=') {
+                Some((k, v)) => (k, v),
+                _ => continue,
             };
+
             match key {
                 "out_time_ms" => {
+                    if value.is_empty() || value == "N/A" {
+                        continue;
+                    }
+                    // println!("out_time_ms={value}");
                     out_time_ms = Some(value.parse::<u64>().unwrap());
                 }
                 "speed" => {
+                    if value.is_empty() || value == "N/A" {
+                        continue;
+                    }
+                    // println!("speed={value}");
                     speed = Some(
                         value
                             .trim()
                             .strip_suffix('x')
                             .unwrap()
-                            .parse::<u16>()
+                            .parse::<f32>()
                             .unwrap(),
                     );
                 }
@@ -117,6 +128,7 @@ impl Thumbnail {
                             start_time.elapsed(),
                         );
                         if progress.should_update(&last_progress) {
+                            // println!("{:?}", progress);
                             let _ = event_bus.publish(Event::TaskProgress { id, progress });
                             last_progress = progress;
                             out_time_ms = None;

@@ -2,13 +2,13 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct RawProgress {
-    pub speed: u16,
+    pub speed: f32,
     /// The actual unit of `out_time_ms` is not microseconds but nanoseconds.
     pub out_time_ms: u64,
 }
 
 impl RawProgress {
-    pub fn new(speed: u16, out_time_ms: u64) -> Self {
+    pub fn new(speed: f32, out_time_ms: u64) -> Self {
         Self { speed, out_time_ms }
     }
 
@@ -24,7 +24,7 @@ impl RawProgress {
         let percentage = self.percentage(total_duration);
         if percentage >= 100.0 {
             Some(Duration::ZERO)
-        } else if self.speed <= 0 {
+        } else if self.speed <= 0.0 {
             None
         } else {
             let remaining = total_duration.saturating_sub(self.out_time_ms_duration());
