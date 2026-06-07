@@ -40,8 +40,9 @@ fn parse_ffprobe_metadata(output: &str) -> AppResult<Metadata> {
             continue;
         }
 
-        let Some((k, v)) = line.split_once('=') else {
-            continue;
+        let (k, v) = match line.split_once('=') {
+            Some((k, v)) if !v.is_empty() && v != "N/A" => (k, v),
+            _ => continue,
         };
 
         match k {
@@ -52,10 +53,12 @@ fn parse_ffprobe_metadata(output: &str) -> AppResult<Metadata> {
                 );
             }
             "duration" => {
+                // dbg!(&v);
                 let secs = v
                     .parse::<f32>()
                     .map_err(|e| AppError::FfmpegError(e.to_string()))?;
                 duration = Some(Duration::from_secs_f32(secs));
+                // dbg!(duration);
             }
             _ => {}
         }

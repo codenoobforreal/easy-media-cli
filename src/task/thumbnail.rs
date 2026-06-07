@@ -97,22 +97,16 @@ impl Thumbnail {
                 continue;
             }
             let (key, value) = match trim_line.split_once('=') {
-                Some((k, v)) => (k, v),
+                Some((k, v)) if !v.is_empty() && v != "N/A" => (k, v),
                 _ => continue,
             };
 
             match key {
                 "out_time_ms" => {
-                    if value.is_empty() || value == "N/A" {
-                        continue;
-                    }
                     // println!("out_time_ms={value}");
                     out_time_ms = Some(value.parse::<u64>().unwrap());
                 }
                 "speed" => {
-                    if value.is_empty() || value == "N/A" {
-                        continue;
-                    }
                     // println!("speed={value}");
                     speed = Some(
                         value
@@ -153,7 +147,7 @@ impl Thumbnail {
             .unwrap()
             > 0
         {
-            // println!("{}", error_buf);
+            println!("{}", error_buf);
             let _ = event_bus.publish(Event::TaskFailed {
                 id,
                 error: error_buf,
