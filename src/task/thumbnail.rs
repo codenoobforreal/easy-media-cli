@@ -75,6 +75,7 @@ impl Thumbnail {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
+        // dbg!(&cmd);
         cmd
     }
 
@@ -152,6 +153,7 @@ impl Thumbnail {
             .unwrap()
             > 0
         {
+            // println!("{}", error_buf);
             let _ = event_bus.publish(Event::TaskFailed {
                 id,
                 error: error_buf,
@@ -162,8 +164,8 @@ impl Thumbnail {
     fn build_thumbnail_output<P: AsRef<Path>>(input: P, output: P) -> PathBuf {
         let mut out_path = output.as_ref().to_path_buf();
         let stem = input.as_ref().file_stem().and_then(|s| s.to_str()).unwrap();
-        out_path.push(format!("{stem}-%04d"));
-        out_path.set_extension("jpg");
+        out_path.push(format!("{stem}-%04d.jpg"));
+        // dbg!(&out_path);
         out_path
     }
 }
