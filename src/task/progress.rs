@@ -21,15 +21,18 @@ impl RawProgress {
     }
 
     fn eta(&self, total_duration: Duration, elapsed: Duration) -> Option<Duration> {
-        let percentage = self.percentage(total_duration);
-        if percentage >= 100.0 {
-            Some(Duration::ZERO)
-        } else if self.speed <= 0.0 {
-            None
-        } else {
-            let remaining = total_duration.saturating_sub(self.out_time_ms_duration());
-            Some(remaining.div_f32(self.average_speed(elapsed) as f32))
+        if self.percentage(total_duration) >= 100.0 {
+            return Some(Duration::ZERO);
         }
+        if self.speed <= 0.0 {
+            return None;
+        }
+        let avg_speed = self.average_speed(elapsed) as f32;
+        (avg_speed != 0.0).then(|| {
+            total_duration
+                .saturating_sub(self.out_time_ms_duration())
+                .div_f32(avg_speed)
+        })
     }
 
     fn out_time_ms_duration(&self) -> Duration {

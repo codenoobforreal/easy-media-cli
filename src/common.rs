@@ -50,7 +50,7 @@ fn traverse_videos<P: AsRef<Path>>(dir: P, remaining_depth: u8) -> Vec<PathBuf> 
     let entries = fs::read_dir(dir).unwrap();
 
     let videos = entries
-        .map(|entry| -> Vec<PathBuf> {
+        .map(|entry| {
             let entry = entry.unwrap();
             let path = entry.path();
             let metadata = entry.metadata().unwrap();
@@ -66,7 +66,7 @@ fn traverse_videos<P: AsRef<Path>>(dir: P, remaining_depth: u8) -> Vec<PathBuf> 
             vec![]
         })
         .flatten()
-        .collect::<Vec<_>>();
+        .collect();
 
     videos
 }
