@@ -1,7 +1,5 @@
-use crate::{
-    error::{AppError, AppResult},
-    task::Progress,
-};
+use crate::task::Progress;
+use anyhow::{Result, anyhow};
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone)]
@@ -37,10 +35,10 @@ impl EventBus {
         Self { sender }
     }
 
-    pub fn publish(&self, event: Event) -> AppResult<()> {
+    pub fn publish(&self, event: Event) -> Result<()> {
         self.sender
-            .send(event)
-            .map_err(|e| AppError::EventBusError(format!("Failed to publish event: {}", e)))?;
+            .send(event.clone())
+            .map_err(|e| anyhow!("Failed to publish [{event:?}]: {}", e))?;
         Ok(())
     }
 

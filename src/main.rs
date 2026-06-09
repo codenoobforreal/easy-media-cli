@@ -1,6 +1,5 @@
 mod cli;
 mod common;
-mod error;
 mod event;
 mod executor;
 mod metadata;

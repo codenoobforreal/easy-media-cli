@@ -1,6 +1,5 @@
+use anyhow::{Context, Result, anyhow};
 use std::path::Path;
-
-use crate::error::{AppError, AppResult};
 use tokio::{process::Command, time::Duration};
 
 const FFPROBE_FORMAT: &[&str] = &[
@@ -30,49 +29,41 @@ impl Metadata {
     }
 }
 
-fn parse_ffprobe_metadata(output: &str) -> AppResult<Metadata> {
+fn parse_ffprobe_metadata(output: &str) -> Result<Metadata> {
     let mut width = None;
     let mut duration = None;
-
     for line in output.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-
-        let (k, v) = match line.split_once('=') {
+        let (key, value) = match line.split_once('=') {
             Some((k, v)) if !v.is_empty() && v != "N/A" => (k, v),
             _ => continue,
         };
-
-        match k {
+        match key {
             "width" => {
                 width = Some(
-                    v.parse::<u16>()
-                        .map_err(|e| AppError::FfmpegError(e.to_string()))?,
+                    value
+                        .parse::<u16>()
+                        .with_context(|| format!("Failed to parse u16: {key}={value}"))?,
                 );
             }
             "duration" => {
                 // dbg!(&v);
-                let secs = v
+                let secs = value
                     .parse::<f32>()
-                    .map_err(|e| AppError::FfmpegError(e.to_string()))?;
+                    .with_context(|| format!("Failed to parse: {key}={value}"))?;
                 duration = Some(Duration::from_secs_f32(secs));
                 // dbg!(duration);
             }
             _ => {}
         }
     }
-
     Ok(Metadata::new(
-        width.ok_or_else(|| {
-            AppError::FfmpegError("The metadata information is missing the width value".to_string())
-        })?,
-        duration.ok_or_else(|| {
-            AppError::FfmpegError(
-                "The metadata information is missing the duration value".to_string(),
-            )
-        })?,
+        width.with_context(|| format!("The metadata information is missing the width value"))?,
+        duration
+            .with_context(|| format!("The metadata information is missing the duration value"))?,
     ))
 }
 
@@ -84,24 +75,21 @@ fn build_metadata_command(input: &Path) -> Command {
     cmd
 }
 
-pub async fn metadata(input: &Path) -> AppResult<Metadata> {
+pub async fn metadata(input: &Path) -> Result<Metadata> {
     let mut cmd = build_metadata_command(input);
     let output = cmd.output().await?;
-
     if output.status.success() {
         let metadata = parse_ffprobe_metadata(
-            str::from_utf8(&output.stdout).map_err(|e| AppError::FfmpegError(e.to_string()))?,
+            str::from_utf8(&output.stdout).with_context(|| format!("Stdout slice is not utf8"))?,
         )?;
-
         Ok(metadata)
     } else {
         let stderr =
-            str::from_utf8(&output.stderr).map_err(|e| AppError::FfmpegError(e.to_string()))?;
-
-        Err(AppError::FfmpegError(format!(
+            str::from_utf8(&output.stderr).with_context(|| format!("Stdout slice is not utf8"))?;
+        Err(anyhow!(
             "Matadata command failed with code {}\n{}",
             output.status.code().unwrap_or(-1),
             stderr
-        )))
+        ))
     }
 }

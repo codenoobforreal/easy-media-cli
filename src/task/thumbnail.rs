@@ -1,9 +1,9 @@
 use crate::{
-    error::{AppError, AppResult},
     event::{Event, EventBus},
     metadata::metadata,
     task::{Progress, Task, progress::RawProgress},
 };
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use std::{
     path::{Path, PathBuf},
@@ -13,8 +13,10 @@ use std::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::{ChildStderr, ChildStdout, Command},
+    select, spawn,
     time::Instant,
 };
+use tokio_util::sync::CancellationToken;
 
 const FFMPEG_QUIET: &[&str] = &["-v", "error"];
 const FFMPEG_PROGRESS: &[&str] = &["-progress", "pipe:1"];
@@ -58,7 +60,6 @@ impl Thumbnail {
                 self.scene_threshold
             ),
         };
-
         let mut cmd = Command::new("ffmpeg");
         cmd.args(FFMPEG_QUIET);
         cmd.args(["-skip_frame", "nokey"]);
@@ -70,11 +71,9 @@ impl Thumbnail {
         cmd.args(["-q:v", "2"]);
         cmd.args(FFMPEG_OVERWRITE);
         cmd.arg(&self.output);
-
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
-
         // dbg!(&cmd);
         cmd
     }
@@ -86,12 +85,16 @@ impl Thumbnail {
         stdout: ChildStdout,
         start_time: Instant,
         total_duration: Duration,
-    ) -> () {
+    ) -> Result<()> {
         let mut line_reader = BufReader::new(stdout).lines();
         let mut out_time_ms = None;
         let mut speed = None;
         let mut last_progress = Progress::default();
-        while let Some(line) = line_reader.next_line().await.unwrap() {
+        while let Some(line) = line_reader
+            .next_line()
+            .await
+            .with_context(|| format!("Failed to read progress line"))?
+        {
             let trim_line = line.trim();
             if trim_line.is_empty() {
                 continue;
@@ -100,11 +103,14 @@ impl Thumbnail {
                 Some((k, v)) if !v.is_empty() && v != "N/A" => (k, v),
                 _ => continue,
             };
-
             match key {
                 "out_time_ms" => {
                     // println!("out_time_ms={value}");
-                    out_time_ms = Some(value.parse::<u64>().unwrap());
+                    out_time_ms = Some(
+                        value
+                            .parse::<u64>()
+                            .with_context(|| format!("Failed to parse u64: {key}={value}"))?,
+                    );
                 }
                 "speed" => {
                     // println!("speed={value}");
@@ -112,9 +118,9 @@ impl Thumbnail {
                         value
                             .trim()
                             .strip_suffix('x')
-                            .unwrap()
+                            .with_context(|| format!("Failed to strip suffix x: {key}={value}"))?
                             .parse::<f32>()
-                            .unwrap(),
+                            .with_context(|| format!("Failed to parse f32: {key}={value}"))?,
                     );
                 }
                 "progress" => {
@@ -127,7 +133,7 @@ impl Thumbnail {
                         );
                         if progress.should_update(&last_progress) {
                             // println!("{:?}", progress);
-                            let _ = event_bus.publish(Event::TaskProgress { id, progress });
+                            event_bus.publish(Event::TaskProgress { id, progress })?;
                             last_progress = progress;
                             out_time_ms = None;
                             speed = None;
@@ -137,22 +143,23 @@ impl Thumbnail {
                 _ => {}
             }
         }
+        Ok(())
     }
 
-    async fn send_error(event_bus: EventBus, id: u64, stderr: ChildStderr) -> () {
+    async fn send_error(event_bus: EventBus, id: u64, stderr: ChildStderr) -> Result<()> {
         let mut error_buf = String::new();
         if BufReader::new(stderr)
             .read_to_string(&mut error_buf)
             .await
-            .unwrap()
+            .with_context(|| format!("Stderr output is not utf-8"))?
             > 0
         {
-            println!("{}", error_buf);
-            let _ = event_bus.publish(Event::TaskFailed {
+            return event_bus.publish(Event::TaskFailed {
                 id,
                 error: error_buf,
             });
         }
+        Ok(())
     }
 
     fn build_thumbnail_output<P: AsRef<Path>>(input: P, output: P) -> PathBuf {
@@ -178,41 +185,82 @@ impl Task for Thumbnail {
         self.input.file_name().and_then(|name| name.to_str())
     }
 
-    async fn run(&self, event_bus: EventBus) -> AppResult<()> {
+    async fn run(&self, event_bus: EventBus, cancel_token: CancellationToken) -> Result<()> {
         event_bus.publish(Event::TaskStarted { id: self.id })?;
         let metadata = metadata(&self.input).await?;
         let total_duration = metadata.duration();
-        let mut child = self.build_thumbnail_command().spawn()?;
+        let mut child = self
+            .build_thumbnail_command()
+            .spawn()
+            .with_context(|| format!("Failed to spawn thumbnail command"))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| AppError::FfmpegError("Failed to capture FFmpeg stdout".to_string()))?;
+            .with_context(|| format!("Failed to capture thumbnail ffmpeg stdout"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .with_context(|| format!("Failed to capture thumbnail ffmpeg stdout"))?;
         let start_time = Instant::now();
         let id = self.id;
-        let stdout_handle = tokio::task::spawn(Self::send_progress(
+        let mut stdout_handle = spawn(Self::send_progress(
             event_bus.clone(),
             id,
             stdout,
             start_time,
             total_duration,
         ));
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| AppError::FfmpegError("Failed to capture FFmpeg stdout".to_string()))?;
-        let stderr_handle = tokio::task::spawn(Self::send_error(event_bus.clone(), id, stderr));
-        let _ = stdout_handle.await;
-        let _ = stderr_handle.await;
-        if let Ok(status) = child.wait().await {
-            if !status.success() {
-                return Err(AppError::FfmpegError(format!(
-                    "FFmpeg exited with code: {}",
-                    status.code().unwrap_or(-1)
-                )));
+        let mut stderr_handle = spawn(Self::send_error(event_bus.clone(), id, stderr));
+        let (mut stdout_done, mut stderr_done) = (false, false);
+        let mut stdout_res: Option<Result<()>> = None;
+        let mut stderr_res: Option<Result<()>> = None;
+        loop {
+            select! {
+                res = &mut stdout_handle, if !stdout_done => {
+                    stdout_done = true;
+                    stdout_res = Some(res.with_context(|| "Stdout progress task panicked")?);
+                }
+                res = &mut stderr_handle, if !stderr_done => {
+                    stderr_done = true;
+                    stderr_res = Some(res.with_context(|| "Stderr error task panicked")?);
+                }
+                _ = cancel_token.cancelled() => {
+                    let _ = child.kill().await;
+                    stdout_handle.abort();
+                    stderr_handle.abort();
+                    let _ = child.wait().await;
+                    // bail!("Task cancelled by user (Ctrl+C)");
+                }
             }
-
-            let _ = event_bus.publish(Event::TaskCompleted { id });
+            if stdout_done && stderr_done {
+                break;
+            }
         }
+        let child_status = child
+            .wait()
+            .await
+            .with_context(|| "Failed to wait for thumbnail process")?;
+        let mut errors = vec![];
+        if let Some(Err(e)) = stdout_res {
+            errors.push(e);
+        }
+        if let Some(Err(e)) = stderr_res {
+            errors.push(e);
+        }
+        if !child_status.success() {
+            errors.push(anyhow!(
+                "FFmpeg exited with non-zero code: {}",
+                child_status.code().unwrap_or(-1)
+            ));
+        }
+        if !errors.is_empty() {
+            let mut main_err = anyhow!("Thumbnail task {} failed with {} errors", id, errors.len());
+            for err in errors {
+                main_err = main_err.context(err);
+            }
+            return Err(main_err);
+        }
+        event_bus.publish(Event::TaskCompleted { id })?;
         Ok(())
     }
 }

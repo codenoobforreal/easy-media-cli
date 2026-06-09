@@ -4,9 +4,11 @@ mod status;
 mod thumbnail;
 mod transcode;
 
-use crate::{error::AppResult, event::EventBus};
+use crate::event::EventBus;
+use anyhow::Result;
 use async_trait::async_trait;
 use std::{fmt, sync::Arc};
+use tokio_util::sync::CancellationToken;
 
 pub use info::Info;
 pub use progress::Progress;
@@ -23,7 +25,7 @@ pub trait Task: Send + Sync + fmt::Debug {
     fn file_name(&self) -> Option<&str> {
         None
     }
-    async fn run(&self, event_bus: EventBus) -> AppResult<()>;
+    async fn run(&self, event_bus: EventBus, cancel_token: CancellationToken) -> Result<()>;
 }
 
 pub type SharedTask = Arc<dyn Task>;

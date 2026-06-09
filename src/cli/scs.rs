@@ -5,9 +5,10 @@ use crate::{
     task::{SharedTask, Thumbnail},
     ui::Ui,
 };
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use clap::{Args, value_parser};
 use std::{fs, path::PathBuf, sync::Arc};
+use tokio::{join, spawn};
 
 #[derive(Args, Debug)]
 pub struct ScsArgs {
@@ -38,7 +39,7 @@ fn validate_threshold(s: f32) -> Result<f32> {
     Ok(s)
 }
 
-pub async fn handle_scs_command(args: &ScsArgs) -> Result<()> {
+pub async fn handle_scs_command(args: &ScsArgs, event_bus: EventBus) -> Result<()> {
     let threshold = validate_threshold(args.threshold)?;
     let depth = args.depth.unwrap_or_default();
     let videos = collect_videos(&args.input, depth);
@@ -58,37 +59,29 @@ pub async fn handle_scs_command(args: &ScsArgs) -> Result<()> {
         )));
         task_id_counter += 1;
     }
-    let event_bus = EventBus::new(100);
     let executor = Executor::new(args.concurrency as usize, event_bus.clone());
     let mut ui = Ui::new(executor.clone(), event_bus.subscribe());
     let executor_clone = executor.clone();
     let tasks_clone = tasks.clone();
     executor.start_event_listener().await;
-    tokio::spawn(async move {
-        if let Err(e) = executor_clone.run_all(tasks_clone).await {
-            eprintln!("Task execution failed: {}", e);
+    let run_all_handle = spawn(async move { executor_clone.run_all(tasks_clone).await });
+    let (run_all_res, ui_res) = join!(run_all_handle, ui.run());
+    let mut errors = vec![];
+    match run_all_res {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => errors.push(e),
+        Err(_) => errors.push(anyhow!("Running all task panicked or cancelled")),
+    }
+    match ui_res {
+        Ok(_) => {}
+        Err(e) => errors.push(e),
+    }
+    if !errors.is_empty() {
+        let mut main_err = anyhow!("Scene cut snap failed with {} errors", errors.len());
+        for err in errors {
+            main_err = main_err.context(err);
         }
-    });
-    ui.run().await?;
+        return Err(main_err);
+    }
     Ok(())
-
-    // match run_handle.join() {
-    //     Ok(task_result) => task_result,
-    //     Err(panic_box) => {
-    //         let panic_info = if let Some(msg) = panic_box.downcast_ref::<&str>() {
-    //             msg.to_string()
-    //         } else if let Some(msg) = panic_box.downcast_ref::<String>() {
-    //             msg.clone()
-    //         } else {
-    //             format!(
-    //                 "Unknown panic; unable to resolve exception type: {:?}",
-    //                 panic_box.type_id()
-    //             )
-    //         };
-    //         Err(anyhow!(
-    //             "A panic occurred in the task thread: {}",
-    //             panic_info
-    //         ))?
-    //     }
-    // }
 }
