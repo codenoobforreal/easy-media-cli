@@ -1,72 +1,70 @@
 mod scs;
 
 use crate::{
-    cli::scs::{ScsArgs, handle_scs_command},
-    event::{Event, EventBus},
+    domain::Event,
+    infra::{
+        CapturingCommandRunner, DefaultCommandRunner, DefaultEventBus, DefaultFileSystem, EventBus,
+        FileSystem,
+    },
+    media_metadata::{DefaultMetadataFetcher, MetadataFetcher},
 };
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tokio::{
-    select, signal, spawn,
-    task::{JoinError, JoinHandle},
+pub use scs::{ScsArgs, handle_scs_command};
+use std::{
+    process,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 #[derive(Parser, Debug)]
-#[command(version, long_about = None)]
-#[command(propagate_version = true)]
-struct Cli {
-    /// An easy-to-use command-line tool for multimedia processing
+#[command(version, propagate_version = true)]
+pub struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand, Debug)]
 #[command(about, long_about = None)]
-enum Commands {
-    /// Scene cut snap
+pub enum Commands {
+    /// FFmpeg scene detection batch thumbnail generator
+    #[allow(clippy::doc_markdown)]
     Scs(ScsArgs),
 }
 
-pub async fn run_cli() -> Result<()> {
+pub fn run_cli() -> Result<()> {
     let cli = Cli::parse();
-    let event_bus = EventBus::new(100);
-    let event_bus_clone = event_bus.clone();
-    let signal_handle: JoinHandle<Result<()>> = spawn(async move {
-        signal::ctrl_c()
-            .await
-            .context("Failed to listen for Ctrl+C signal")?;
-        event_bus_clone
-            .publish(Event::Shutdown)
-            .context("Failed to send shutdown event")?;
-        Ok(())
-    });
-    let main_task = match &cli.command {
-        Commands::Scs(args) => handle_scs_command(args, event_bus),
-    };
-    select! {
-        main_res = main_task => {
-            main_res?;
-        }
-        signal_res = signal_handle => {
-            handle_signal_result(signal_res)?;
-        }
-    }
-    Ok(())
-}
+    let event_bus: Arc<dyn EventBus> = Arc::new(DefaultEventBus::default());
+    let file_system: Arc<dyn FileSystem> = Arc::new(DefaultFileSystem);
+    let command_runner: Arc<dyn CapturingCommandRunner> = Arc::new(DefaultCommandRunner);
+    let metadata_fetcher: Arc<dyn MetadataFetcher> =
+        Arc::new(DefaultMetadataFetcher::new(command_runner.clone()));
 
-fn handle_signal_result(signal_res: Result<Result<()>, JoinError>) -> Result<()> {
-    match signal_res {
-        Ok(Ok(())) => Ok(()),
-        // An error occurred in the signal handler itself (e.g., the handler could not be registered)
-        Ok(Err(e)) => Err(anyhow!(e)),
-        Err(join_err) => {
-            if join_err.is_panic() {
-                Err(anyhow!(join_err))
-            } else if join_err.is_cancelled() {
-                Err(anyhow!(join_err))
-            } else {
-                Err(anyhow!(join_err))
-            }
+    // 全局注册 Ctrl+C 监听：收到信号后向事件总线发布 Shutdown
+    let is_first_cancel = Arc::new(AtomicBool::new(true));
+    let bus_for_signal = event_bus.clone();
+    ctrlc::set_handler(move || {
+        if is_first_cancel.load(Ordering::SeqCst) {
+            // 第一次按下：优雅取消，等待任务收尾
+            is_first_cancel.store(false, Ordering::SeqCst);
+            let _ = bus_for_signal.publish(Event::Shutdown);
+        } else {
+            // 第二次按下：强制退出
+            process::exit(1);
         }
+    })?;
+
+    match &cli.command {
+        Commands::Scs(args) => handle_scs_command(
+            args,
+            event_bus,
+            &command_runner,
+            &metadata_fetcher,
+            &file_system,
+        )?,
     }
+
+    Ok(())
 }

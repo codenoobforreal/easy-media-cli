@@ -1,16 +1,17 @@
 mod cli;
 mod common;
-mod event;
-mod executor;
-mod metadata;
+mod domain;
+mod ffmpeg_progress;
+mod infra;
+mod media_metadata;
 mod task;
+mod tasks;
 mod ui;
 
 use anyhow::Result;
 use cli::run_cli;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    run_cli().await?;
+fn main() -> Result<()> {
+    run_cli()?;
     Ok(())
 }

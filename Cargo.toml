@@ -1,20 +1,36 @@
 [package]
 name = "easy-media-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/codenoobforreal/easy-media-cli"
+description = "A lightweight FFmpeg-powered CLI for batch video processing and scene-based thumbnail generation"
+categories = ["command-line-utilities", "multimedia"]
+keywords = ["cli", "ffmpeg", "batch-processing", "video", "thumbnail", "scene-detection"]
 
 [dependencies]
-anyhow = {version = "1.0.102"}
-async-trait = {version = "0.1.89"}
-clap = { version = "4.6.1", features = ["derive"] }
+anyhow = { version = "1" }
+clap = { version = "4", features = ["derive", "wrap_help"] }
 crossterm = { version = "0.29.0" }
-futures = {version = "0.3.32"}
-tokio = {version = "1.52.3", features = ["macros","rt-multi-thread","process","io-util","sync","time","signal"]}
-tokio-util = { version = "0.7.18"}
+ctrlc = { version = "3" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+
+[dev-dependencies]
+insta = { version = "1", features = ["filters"] }
+tempfile = { version = "3" }
+
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3
 
 [profile.release]
-opt-level = 2
 strip = true
-overflow-checks = false
 lto = true
 panic = "abort"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
+cargo = "deny"
