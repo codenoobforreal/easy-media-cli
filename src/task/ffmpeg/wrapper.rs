@@ -172,11 +172,19 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         ))
     }
 
-    /// 轮询进程状态与取消信号，返回最终退出状态
+    /// 自适应间隔轮询进程状态与取消信号，返回最终退出状态
     fn wait_for_completion(
         child_guard: &mut ChildGuard,
         cancel_token: &dyn CancelToken,
     ) -> Result<ExitStatus> {
+        // 配置轮询间隔策略
+        const INITIAL_SLEEP: Duration = Duration::from_millis(10);
+        const MAX_SLEEP: Duration = Duration::from_millis(100);
+        const QUICK_CHECKS: u32 = 4;
+
+        let mut sleep_duration = INITIAL_SLEEP;
+        let mut checks = 0;
+
         loop {
             if cancel_token.is_cancelled() {
                 child_guard.kill()?;
@@ -184,9 +192,14 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
                 return Ok(status);
             }
 
-            match child_guard.try_wait()? {
-                Some(status) => return Ok(status),
-                None => thread::sleep(Duration::from_millis(10)),
+            if let Some(status) = child_guard.try_wait()? {
+                return Ok(status);
+            }
+
+            thread::sleep(sleep_duration);
+            checks += 1;
+            if checks > QUICK_CHECKS {
+                sleep_duration = (sleep_duration * 2).min(MAX_SLEEP);
             }
         }
     }
