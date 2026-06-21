@@ -35,6 +35,16 @@ pub struct CommandOutput {
     pub status: ExitStatus,
 }
 
+impl CommandOutput {
+    pub fn new(stdout: Vec<u8>, stderr: Vec<u8>, status: ExitStatus) -> Self {
+        Self {
+            stdout,
+            stderr,
+            status,
+        }
+    }
+}
+
 // 子进程 RAII 守卫：保证 drop 时一定会 kill + wait，彻底避免僵尸进程
 pub struct ChildGuard {
     child: Option<Box<dyn ChildHandle>>,
@@ -144,11 +154,7 @@ pub trait CapturingCommandRunner: StreamingCommandRunner {
 
         let status = command_streams.child_handle.wait()?;
 
-        Ok(CommandOutput {
-            stdout: stdout_buf,
-            stderr: stderr_buf,
-            status,
-        })
+        Ok(CommandOutput::new(stdout_buf, stderr_buf, status))
     }
 }
 
@@ -217,11 +223,11 @@ impl CapturingCommandRunner for DefaultCommandRunner {
             .output()
             .with_context(|| format!("Failed to execute {} command", program.display()))?;
 
-        Ok(CommandOutput {
-            stdout: output.stdout,
-            stderr: output.stderr,
-            status: cmd.status()?,
-        })
+        Ok(CommandOutput::new(
+            output.stdout,
+            output.stderr,
+            output.status,
+        ))
     }
 }
 

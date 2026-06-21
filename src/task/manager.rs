@@ -1,8 +1,9 @@
 use crate::{
+    common::join_errors_with_summary,
     domain::{Event, Task, TaskMetadata},
     infra::{CancelToken, DefaultCancelToken, EventBus},
 };
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use std::sync::Arc;
 
 /// 控制任务生命周期，发布生命周期事件，无并发
@@ -104,11 +105,8 @@ impl TaskManager {
         }
 
         if !system_errors.is_empty() {
-            let mut main_error = anyhow!("{} system error(s) occurred", system_errors.len());
-            for err in system_errors {
-                main_error = main_error.context(err);
-            }
-            return Err(main_error);
+            let summary = format!("{} system error(s) occurred", system_errors.len());
+            return Err(join_errors_with_summary(summary, &system_errors));
         }
 
         Ok(())
@@ -192,12 +190,7 @@ mod tests {
         mock_task.set_fail("read input stream failed");
         let tasks: &[Arc<dyn Task>] = &[Arc::new(mock_task.clone())];
         let err = mgr.run_all(tasks).unwrap_err();
-        assert_debug_snapshot!(err,@r#"
-        Error {
-            context: "read input stream failed",
-            source: "1 system error(s) occurred",
-        }
-        "#);
+        assert_debug_snapshot!(err,@r#""1 system error(s) occurred\n- \"read input stream failed\"""#);
         let events = bus.events();
         assert!(events.iter().any(|e| matches!(e, Event::TaskFailed{id:2, error} if error.contains("read input stream failed"))));
         assert!(

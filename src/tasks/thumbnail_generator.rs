@@ -63,13 +63,14 @@ impl ThumbnailGenerator {
     pub fn build_ffmpeg_args(&self) -> Vec<OsString> {
         let threshold: f64 = f64::from(self.scene_threshold) / 10.0;
 
+        // FFmpeg 的 -vf 参数用逗号 , 来分隔不同的滤镜（链），例如 filter1,filter2。如果某个滤镜的参数内部需要出现逗号，就必须用反斜杠 \ 对它进行转义，写成 \,，否则 FFmpeg 会错误地把这个逗号当成滤镜分隔符，导致解析失败。滤镜链中包含 select=gt(scene,0.5)，这里的 scene,0.5 是 gt 函数的参数，里面的逗号不是用来分隔滤镜的，所以必须写成 select=gt(scene\,0.5)。
         let video_filter_str: OsString = match self.width {
             None => format!(
-                "select=gt(scene,{threshold:.1}),scale=in_range=auto:out_range=full,format=yuv420p",
+                "select=gt(scene\\,{threshold:.1}),scale=in_range=auto:out_range=full,format=yuv420p",
             )
             .into(),
             Some(width) => format!(
-                "select=gt(scene,{threshold:.1}),scale=in_range=auto:out_range=full,format=yuvj420p:{width}:-2"
+                "select=gt(scene\\,{threshold:.1}),scale=in_range=auto:out_range=full,format=yuvj420p:{width}:-2"
             )
             .into(),
         };
@@ -195,7 +196,7 @@ mod tests {
                 "-i",
                 "/input/test.mp4",
                 "-vf",
-                "select=gt(scene,0.5),scale=in_range=auto:out_range=full,format=yuv420p",
+                "select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p",
                 "-fps_mode",
                 "vfr",
                 "-q:v",
@@ -212,7 +213,7 @@ mod tests {
             let args = task.build_args();
             let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
             let vf_str = args[vf_idx + 1].to_string_lossy();
-            assert_debug_snapshot!(vf_str,@r#""select=gt(scene,0.5),scale=in_range=auto:out_range=full,format=yuv420p""#);
+            assert_debug_snapshot!(vf_str,@r#""select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p""#);
         }
 
         #[test]
@@ -221,7 +222,7 @@ mod tests {
             let args = task.build_args();
             let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
             let vf_str = args[vf_idx + 1].to_string_lossy();
-            assert_debug_snapshot!(vf_str,@r#""select=gt(scene,0.5),scale=in_range=auto:out_range=full,format=yuv420p""#);
+            assert_debug_snapshot!(vf_str,@r#""select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p""#);
         }
 
         #[test]
@@ -230,7 +231,7 @@ mod tests {
             let args = task.build_args();
             let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
             let vf_str = args[vf_idx + 1].to_string_lossy();
-            assert_debug_snapshot!(vf_str,@r#""select=gt(scene,0.5),scale=in_range=auto:out_range=full,format=yuvj420p:320:-2""#);
+            assert_debug_snapshot!(vf_str,@r#""select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuvj420p:320:-2""#);
         }
     }
 

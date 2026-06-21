@@ -1,6 +1,7 @@
 //! `FfmpegTaskWrapper` + 通用执行流程
 
 use crate::{
+    common::join_errors_with_summary,
     domain::{Event, Task},
     ffmpeg_progress::{FfmpegProgressParser, ProgressTracker},
     infra::{
@@ -225,11 +226,8 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         if errors.is_empty() {
             Ok(())
         } else {
-            let mut main_err = anyhow!("Task {} failed with {} errors", self.id(), errors.len());
-            for err in errors {
-                main_err = main_err.context(err);
-            }
-            Err(main_err)
+            let summary = format!("Task {} failed with {} errors", self.id(), errors.len());
+            Err(join_errors_with_summary(summary, &errors))
         }
     }
 
@@ -437,12 +435,7 @@ mod tests {
                 .runner
                 .set_spawn_ok(vec![], b"Invalid argument".to_vec(), exit_status(true));
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#"
-            Error {
-                context: "FFmpeg error: Invalid argument",
-                source: "Task 1 failed with 1 errors",
-            }
-            "#);
+            assert_debug_snapshot!(err,@r#""Task 1 failed with 1 errors\n- \"FFmpeg error: Invalid argument\"""#);
         }
 
         #[test]
@@ -453,12 +446,7 @@ mod tests {
                 .runner
                 .set_spawn_ok(vec![], vec![], exit_status_with_code(3));
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#"
-            Error {
-                context: "FFmpeg exited with non-zero exit code: 3",
-                source: "Task 1 failed with 1 errors",
-            }
-            "#);
+            assert_debug_snapshot!(err,@r#""Task 1 failed with 1 errors\n- \"FFmpeg exited with non-zero exit code: 3\"""#);
         }
 
         #[test]

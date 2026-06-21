@@ -326,7 +326,7 @@ mod tests {
             let args = runner.last_spawn_args();
             let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
             let filter_str = args[vf_idx + 1].to_string_lossy();
-            assert!(filter_str.contains("gt(scene,0.8)"));
+            assert!(filter_str.contains("gt(scene\\,0.8)"));
             Ok(())
         }
 

@@ -29,6 +29,7 @@ similar.opt-level = 3
 strip = true
 lto = true
 panic = "abort"
+debug = true
 
 [lints.clippy]
 all = "deny"

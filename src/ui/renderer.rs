@@ -36,6 +36,8 @@ pub struct DefaultRenderer<O: Write = Stdout, E: Write = Stderr> {
     stderr: E,
     /// 上一次渲染占用的逻辑行数，用于光标回退
     last_ui_lines: u16,
+    buffer: Vec<u8>,
+    stderr_buffer: Vec<u8>,
 }
 
 impl Default for DefaultRenderer<Stdout, Stderr> {
@@ -44,6 +46,8 @@ impl Default for DefaultRenderer<Stdout, Stderr> {
             stdout: stdout(),
             stderr: stderr(),
             last_ui_lines: 0,
+            buffer: vec![],
+            stderr_buffer: vec![],
         }
     }
 }
@@ -54,6 +58,8 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
             stdout,
             stderr,
             last_ui_lines: 0,
+            buffer: vec![],
+            stderr_buffer: vec![],
         }
     }
 }
@@ -130,53 +136,24 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
 
         writeln!(w, "{RESULT_LIST_TITLE}")?;
         for task in tasks_with_result {
-            // 已在 `tasks_with_result` 中确认了 `is_some`，在这里使用 `unwrap` 是可行的
-            writeln!(w, "[{}]: {}", task.name(), task.result().unwrap())?;
+            if let Some(result) = task.result() {
+                writeln!(w, "[{}]: {}", task.name(), result)?;
+            }
         }
         writeln!(w)?;
 
         Ok(())
     }
 
-    // pub fn with_writers(stdout: O, stderr: E) -> Self {
-    //     Self {
-    //         stdout,
-    //         stderr,
-    //         last_ui_lines: 0,
-    //     }
-    // }
-
-    // pub fn stdout(&self) -> &O {
-    //     &self.stdout
-    // }
-
-    // pub fn stderr(&self) -> &E {
-    //     &self.stderr
-    // }
-
-    // pub async fn render_overall_stats(&mut self, stats: &Stats) -> Result<()> {
-    //     Self::write_overall_stats(&mut self.stdout, stats)
-    // }
-
-    // pub async fn render_running_tasks(&mut self, tasks: &HashMap<u64, Metadata>) -> Result<()> {
-    //     Self::write_running_tasks(&mut self.stdout, tasks)
-    // }
-
-    // pub async fn render_failed_tasks(&mut self, tasks: &HashMap<u64, Metadata>) -> Result<()> {
-    //     Self::write_failed_tasks(&mut self.stderr, tasks)
-    // }
-
-    // pub async fn render_complete_stat(&mut self, stats: &Stats) -> Result<()> {
-    //     Self::write_complete_stat(&mut self.stdout, stats)
-    // }
-
+    /// 返回缓冲区中的换行数量
     #[allow(clippy::naive_bytecount, clippy::cast_possible_truncation)]
     fn count_lines(buffer: &[u8]) -> u16 {
-        buffer
-            .iter()
-            .filter(|&&b| b == b'\n')
-            .count()
-            .clamp(0, u16::MAX as usize) as u16
+        // buffer.iter().filter(|&&b| b == b'\n').count() as u16
+        let mut lines = buffer.iter().filter(|&&b| b == b'\n').count();
+        if !buffer.is_empty() && buffer.last() != Some(&b'\n') {
+            lines += 1; // 最后一行不完整也算一行
+        }
+        lines.clamp(0, u16::MAX as usize) as u16
     }
 }
 
@@ -186,25 +163,30 @@ impl<O: Write + Send + Sync, E: Write + Send + Sync> Renderer for DefaultRendere
         stats: &Stats,
         tasks: &HashMap<usize, TaskMetadata>,
     ) -> Result<()> {
-        if self.last_ui_lines > 0 {
-            self.stdout.queue(MoveUp(self.last_ui_lines))?;
+        let result = (|| -> Result<()> {
+            if self.last_ui_lines > 0 {
+                self.stdout.queue(MoveUp(self.last_ui_lines))?;
+            }
+            self.stdout
+                .queue(Clear(ClearType::FromCursorDown))?
+                .queue(Hide)?;
+
+            self.buffer.clear();
+            Self::write_overall_stats(&mut self.buffer, stats)?;
+            Self::write_running_tasks(&mut self.buffer, tasks)?;
+            self.stdout.write_all(&self.buffer)?;
+            self.stdout.flush()?;
+            self.last_ui_lines = Self::count_lines(&self.buffer);
+            Ok(())
+        })();
+
+        if result.is_err() {
+            // 仅在出错时尝试恢复光标
+            let _ = self.stdout.queue(Show);
+            let _ = self.stdout.flush();
         }
 
-        self.stdout
-            .queue(Clear(ClearType::FromCursorDown))?
-            .queue(Hide)?;
-
-        let mut content_buffer = Vec::new();
-        Self::write_overall_stats(&mut content_buffer, stats)?;
-        Self::write_running_tasks(&mut content_buffer, tasks)?;
-
-        self.stdout.write_all(&content_buffer)?;
-        self.stdout.flush()?;
-        self.stderr.flush()?;
-
-        self.last_ui_lines = Self::count_lines(&content_buffer);
-
-        Ok(())
+        result
     }
 
     fn render_final(
@@ -213,28 +195,33 @@ impl<O: Write + Send + Sync, E: Write + Send + Sync> Renderer for DefaultRendere
         tasks: &HashMap<usize, TaskMetadata>,
         message: &str,
     ) -> Result<()> {
-        if self.last_ui_lines > 0 {
-            self.stdout.queue(MoveUp(self.last_ui_lines))?;
+        let result = (|| -> Result<()> {
+            if self.last_ui_lines > 0 {
+                self.stdout.queue(MoveUp(self.last_ui_lines))?;
+            }
+            self.stdout.queue(Clear(ClearType::FromCursorDown))?;
+
+            self.buffer.clear();
+            self.stderr_buffer.clear();
+
+            Self::write_complete_stat(&mut self.buffer, stats)?;
+            Self::write_task_results(&mut self.buffer, tasks)?;
+            Self::write_failed_tasks(&mut self.stderr_buffer, tasks)?;
+            writeln!(self.buffer, "{message}")?;
+
+            self.stdout.write_all(&self.buffer)?;
+            self.stderr.write_all(&self.stderr_buffer)?;
+            self.stdout.flush()?;
+            self.stderr.flush()?;
+            Ok(())
+        })();
+
+        if result.is_err() {
+            let _ = self.stdout.queue(Show);
+            let _ = self.stdout.flush();
         }
 
-        self.stdout.queue(Clear(ClearType::FromCursorDown))?;
-
-        let mut stdout_buf = Vec::new();
-        let mut stderr_buf = Vec::new();
-
-        Self::write_complete_stat(&mut stdout_buf, stats)?;
-        Self::write_task_results(&mut stdout_buf, tasks)?;
-        Self::write_failed_tasks(&mut stderr_buf, tasks)?;
-        writeln!(stdout_buf, "{message}")?;
-
-        self.stdout.write_all(&stdout_buf)?;
-        self.stderr.write_all(&stderr_buf)?;
-        self.stdout.queue(Show)?;
-
-        self.stdout.flush()?;
-        self.stderr.flush()?;
-
-        Ok(())
+        result
     }
 }
 
@@ -243,6 +230,7 @@ impl<O: Write, E: Write> Drop for DefaultRenderer<O, E> {
     fn drop(&mut self) {
         let _ = self.stdout.queue(Show);
         let _ = self.stdout.flush();
+        let _ = self.stderr.flush();
     }
 }
 
@@ -292,9 +280,9 @@ pub mod tests {
     #[test]
     fn count_lines_counts_newlines_accurately() {
         assert_eq!(MemRender::count_lines(b""), 0);
-        assert_eq!(MemRender::count_lines(b"no newline"), 0);
+        assert_eq!(MemRender::count_lines(b"no newline"), 1);
         assert_eq!(MemRender::count_lines(b"one\n"), 1);
-        assert_eq!(MemRender::count_lines(b"a\nb\nc"), 2);
+        assert_eq!(MemRender::count_lines(b"a\nb\nc"), 3);
         assert_eq!(MemRender::count_lines(b"\n\n\n"), 3);
     }
 

@@ -1,9 +1,11 @@
 //! 跨领域通用工具
 
+mod error;
 mod media_scan;
 mod parser;
 mod time;
 
+pub use error::join_errors_with_summary;
 pub use media_scan::collect_videos;
 pub use parser::parse_float_str;
 pub use time::format_duration;
