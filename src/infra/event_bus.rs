@@ -1,10 +1,8 @@
 use crate::domain::Event;
-use anyhow::{Context, Result, anyhow};
-use std::sync::Mutex;
+use anyhow::{Result, anyhow};
+use std::sync::{Arc, Mutex};
 
-/// 事件处理函数类型：接收Event，返回错误/空结果，支持跨线程传递
-pub type EventHandler = Box<dyn Fn(Event) -> Result<()> + Send + Sync>;
-/// 存储全部订阅处理器的线程安全容器
+pub type EventHandler = Arc<dyn Fn(Event) -> Result<()> + Send + Sync>;
 pub type HandlerStorage = Mutex<Vec<EventHandler>>;
 
 pub trait EventBus: Send + Sync {
@@ -19,25 +17,27 @@ pub struct DefaultEventBus {
 
 impl EventBus for DefaultEventBus {
     fn publish(&self, event: Event) -> Result<()> {
-        let handlers_guard = self
-            .handlers
-            .lock()
-            .map_err(|e| anyhow!("handlers lock mutex poisoned: {e}"))?;
-        for handler in handlers_guard.iter() {
-            handler(event.clone()).with_context(|| "Failed to run handler".to_owned())?;
+        // 使用克隆处理器的实现
+        let handlers_snapshot = {
+            self.handlers
+                .lock()
+                .map_err(|e| anyhow!("handlers lock mutex poisoned: {e}"))?
+                .clone()
+        };
+
+        for handler in handlers_snapshot {
+            handler(event.clone())?;
         }
-        drop(handlers_guard);
 
         Ok(())
     }
 
-    fn subscribe(&self, handler: Box<dyn Fn(Event) -> Result<()> + Send + Sync>) -> Result<()> {
+    fn subscribe(&self, handler: EventHandler) -> Result<()> {
         let mut handlers_guard = self
             .handlers
             .lock()
             .map_err(|e| anyhow!("handlers lock mutex poisoned: {e}"))?;
         handlers_guard.push(handler);
-        drop(handlers_guard);
 
         Ok(())
     }
@@ -97,7 +97,7 @@ pub mod tests {
         let bus = DefaultEventBus::default();
         let received = Arc::new(Mutex::new(vec![]));
         let received_clone = received.clone();
-        bus.subscribe(Box::new(move |event| {
+        bus.subscribe(Arc::new(move |event| {
             received_clone.lock().unwrap().push(event);
             Ok(())
         }))
@@ -128,13 +128,13 @@ pub mod tests {
         let count1 = Arc::new(Mutex::new(0));
         let count2 = Arc::new(Mutex::new(0));
         let c1 = count1.clone();
-        bus.subscribe(Box::new(move |_| {
+        bus.subscribe(Arc::new(move |_| {
             *c1.lock().unwrap() += 1;
             Ok(())
         }))
         .unwrap();
         let c2 = count2.clone();
-        bus.subscribe(Box::new(move |_| {
+        bus.subscribe(Arc::new(move |_| {
             *c2.lock().unwrap() += 1;
             Ok(())
         }))
@@ -150,19 +150,14 @@ pub mod tests {
     #[test]
     fn subscriber_error_propagates_to_publish() {
         let bus = DefaultEventBus::default();
-        bus.subscribe(Box::new(|_| Err(anyhow!("Handler failed"))))
+        bus.subscribe(Arc::new(|_| Err(anyhow!("Handler failed"))))
             .unwrap();
         let err = bus
             .publish(Event::TaskStarted {
                 metadata: sample_test_metadata(1),
             })
             .unwrap_err();
-        assert_debug_snapshot!(err,@r#"
-        Error {
-            context: "Failed to run handler",
-            source: "Handler failed",
-        }
-        "#);
+        assert_debug_snapshot!(err,@r#""Handler failed""#);
     }
 
     #[test]
@@ -181,7 +176,7 @@ pub mod tests {
         let bus = MockEventBus::default();
         let count = Arc::new(Mutex::new(0));
         let count_clone = count.clone();
-        bus.subscribe(Box::new(move |_| {
+        bus.subscribe(Arc::new(move |_| {
             *count_clone.lock().unwrap() += 1;
             Ok(())
         }))

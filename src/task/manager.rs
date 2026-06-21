@@ -32,7 +32,7 @@ impl TaskManager {
     /// 订阅事件总线的 Shutdown 信号，收到后触发取消
     pub fn bind_shutdown_listener(&self) -> Result<()> {
         let this = self.clone();
-        self.event_bus.subscribe(Box::new(move |event| {
+        self.event_bus.subscribe(Arc::new(move |event| {
             if matches!(event, Event::Shutdown) {
                 this.shutdown();
             }

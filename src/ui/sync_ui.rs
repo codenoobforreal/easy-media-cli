@@ -20,7 +20,7 @@ impl SyncUi {
     pub fn bind_event_bus(renderer: Box<dyn Renderer>, bus: &dyn EventBus) -> Result<Self> {
         let inner = Arc::new(Mutex::new(RenderScheduler::with_renderer(renderer)));
         let inner_clone = inner.clone();
-        bus.subscribe(Box::new(move |event| {
+        bus.subscribe(Arc::new(move |event| {
             let mut guard = inner_clone
                 .lock()
                 .map_err(|poison| anyhow!("UI mutex poisoned: {poison}"))?;
