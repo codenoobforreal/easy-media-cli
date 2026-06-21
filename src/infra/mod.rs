@@ -14,17 +14,14 @@ pub use command_runner::{
     CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, DefaultCommandRunner,
     StreamingCommandRunnerExt,
 };
-pub use event_bus::{DefaultEventBus, EventBus};
+pub use event_bus::{DefaultEventBus, EventBus, EventHandler};
 #[cfg(test)]
 pub use file_system::tests::MockFileSystem;
 pub use file_system::{DefaultFileSystem, FileSystem, FileType};
 
 #[cfg(test)]
-pub use command_runner::{
-    ChildHandle, CommandOutput, CommandStreams, StreamingCommandRunner,
-    tests::{MockChildHandle, MockChildInner, MockCommandRunner},
-};
+pub use command_runner::tests::MockCommandRunner;
 #[cfg(test)]
-pub use event_bus::{EventHandler, tests::MockEventBus};
+pub use event_bus::tests::MockEventBus;
 #[cfg(test)]
 pub use test_helpers::{exit_status, exit_status_terminated, exit_status_with_code};

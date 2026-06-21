@@ -1,13 +1,13 @@
 //! `FFmpeg` 任务通用执行框架
 
 mod wrapper;
-pub use wrapper::FfmpegTaskWrapper;
 
 use anyhow::Result;
 use std::{
     ffi::{OsStr, OsString},
     path::Path,
 };
+pub use wrapper::{FfmpegTaskWrapper, read_progress_impl};
 
 /// 领域 trait
 pub trait FfmpegTask: Send + Sync {

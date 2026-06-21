@@ -16,8 +16,6 @@ pub use ffprobe::{
     sample_ffprobe_audio_stream, sample_ffprobe_format, sample_ffprobe_raw_json,
     sample_ffprobe_raw_json_bytes, sample_ffprobe_subtitle_stream, sample_ffprobe_video_stream,
 };
-#[cfg(test)]
-pub use metadata::Format;
 
 pub fn convert_raw_to_metadata(probe: FfprobeRawJson) -> Result<MediaMetadata> {
     let mut video_streams = Vec::new();

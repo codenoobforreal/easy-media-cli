@@ -44,7 +44,7 @@ impl MediaMetadata {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VideoStream {
     pub codec_name: String,
     pub codec_long_name: String,
@@ -96,7 +96,7 @@ impl TryFrom<FfprobeStream> for VideoStream {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AudioStream {
     pub codec_name: String,
     pub codec_long_name: String,
@@ -223,6 +223,7 @@ mod tests {
         ");
     }
 
+    #[test]
     fn normal_video_stream_converts_correctly() {
         let raw = sample_ffprobe_video_stream();
         let stream: VideoStream = raw.try_into().unwrap();

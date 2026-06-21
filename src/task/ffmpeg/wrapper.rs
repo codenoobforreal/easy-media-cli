@@ -252,29 +252,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         start_time: Instant,
         total_duration: Duration,
     ) -> Result<()> {
-        let line_reader = BufReader::new(stdout_reader).lines();
-        let mut parser = FfmpegProgressParser::default();
-        let mut tracker = ProgressTracker::new(total_duration);
-        // 初始化为过去时间，确保首次有效进度立即发布
-        let mut last_publish = Instant::now()
-            .checked_sub(Duration::from_millis(200))
-            .unwrap_or(Instant::now());
-
-        for line in line_reader {
-            let line = line?;
-            let Some(raw_progress) = parser.feed_line(&line)? else {
-                continue;
-            };
-            let elapsed = start_time.elapsed();
-            if last_publish.elapsed() >= Duration::from_millis(100)
-                && let Some(progress) = tracker.update(raw_progress, elapsed)
-            {
-                event_bus.publish(Event::TaskProgress { id, progress })?;
-                last_publish = Instant::now();
-            }
-        }
-
-        Ok(())
+        read_progress_impl(id, event_bus, stdout_reader, start_time, total_duration)
     }
 
     /// 排空 `stdout`，不做处理（无进度任务用，避免管道阻塞）
@@ -297,6 +275,47 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
 
         Ok(())
     }
+}
+
+pub fn read_progress_impl(
+    id: usize,
+    event_bus: &dyn EventBus,
+    stdout_reader: impl Read,
+    start_time: Instant,
+    total_duration: Duration,
+) -> Result<()> {
+    let mut buf_reader = BufReader::new(stdout_reader);
+    let mut parser = FfmpegProgressParser::default();
+    let mut tracker = ProgressTracker::new(total_duration);
+    let mut last_publish = Instant::now()
+        .checked_sub(Duration::from_millis(200))
+        .unwrap_or(Instant::now());
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        let bytes_read = buf_reader.read_line(&mut line)?;
+        if bytes_read == 0 {
+            break; // EOF
+        }
+
+        let trimmed = line.trim_end_matches(['\n', '\r']);
+        let Some(raw_progress) = parser.feed_line(trimmed)? else {
+            continue;
+        };
+
+        let now = Instant::now();
+        let elapsed = now - start_time;
+        let time_since_last_publish = now - last_publish;
+        if time_since_last_publish >= Duration::from_millis(100)
+            && let Some(progress) = tracker.update(raw_progress, elapsed)
+        {
+            event_bus.publish(Event::TaskProgress { id, progress })?;
+            last_publish = now;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

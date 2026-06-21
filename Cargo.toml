@@ -20,6 +20,11 @@ serde_json = { version = "1" }
 [dev-dependencies]
 insta = { version = "1", features = ["filters"] }
 tempfile = { version = "3" }
+criterion = { version = "0.8" }
+
+[[bench]]
+name = "read_progress"
+harness = false
 
 [profile.dev.package]
 insta.opt-level = 3
@@ -32,6 +37,8 @@ panic = "abort"
 debug = true
 
 [lints.clippy]
-all = "deny"
-pedantic = "deny"
-cargo = "deny"
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+must_use_candidate = "warn"
+missing_errors_doc = "warn"

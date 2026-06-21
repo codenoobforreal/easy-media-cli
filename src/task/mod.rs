@@ -3,5 +3,5 @@
 mod ffmpeg;
 mod manager;
 
-pub use ffmpeg::{ExecutionMode, FfmpegTask, FfmpegTaskWrapper};
+pub use ffmpeg::{ExecutionMode, FfmpegTask, FfmpegTaskWrapper, read_progress_impl};
 pub use manager::TaskManager;

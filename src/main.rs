@@ -1,17 +1,6 @@
-mod cli;
-mod common;
-mod domain;
-mod ffmpeg_progress;
-mod infra;
-mod media_metadata;
-mod task;
-mod tasks;
-mod ui;
+use easy_media_cli::run_cli;
 
-use anyhow::Result;
-use cli::run_cli;
-
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     run_cli()?;
     Ok(())
 }
