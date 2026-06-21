@@ -255,14 +255,22 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         let line_reader = BufReader::new(stdout_reader).lines();
         let mut parser = FfmpegProgressParser::default();
         let mut tracker = ProgressTracker::new(total_duration);
+        // 初始化为过去时间，确保首次有效进度立即发布
+        let mut last_publish = Instant::now()
+            .checked_sub(Duration::from_millis(200))
+            .unwrap_or(Instant::now());
+
         for line in line_reader {
             let line = line?;
             let Some(raw_progress) = parser.feed_line(&line)? else {
                 continue;
             };
             let elapsed = start_time.elapsed();
-            if let Some(progress) = tracker.update(raw_progress, elapsed) {
+            if last_publish.elapsed() >= Duration::from_millis(100)
+                && let Some(progress) = tracker.update(raw_progress, elapsed)
+            {
                 event_bus.publish(Event::TaskProgress { id, progress })?;
+                last_publish = Instant::now();
             }
         }
 
@@ -509,6 +517,32 @@ mod tests {
             suite.runner.set_spawn_err("ffmpeg executable not found");
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
             assert_debug_snapshot!(err,@r#""ffmpeg executable not found""#);
+        }
+
+        #[test]
+        fn progress_events_are_throttled() {
+            let suite = StreamingTestSuite::new();
+            let mut metadata = MediaMetadata::default();
+            metadata.format.duration = Duration::from_secs(10);
+            suite.fetcher.set_ok(metadata);
+            // 构造两个连续的进度块，时间差极小，远小于 100ms 节流窗口
+            let stdout = b"out_time_ms=1000000\nspeed=1.0x\nprogress=continue\n\n\
+                            out_time_ms=2000000\nspeed=1.0x\nprogress=continue\n\n"
+                .to_vec();
+            suite.runner.set_spawn_ok(stdout, vec![], exit_status(true));
+            let _ = suite.wrapper.run(&suite.bus, &suite.cancel);
+            let progress_events: Vec<_> = suite
+                .bus_mock
+                .events()
+                .into_iter()
+                .filter(|e| matches!(e, Event::TaskProgress { .. }))
+                .collect();
+            assert_eq!(
+                progress_events.len(),
+                1,
+                "Expected exactly one progress event due to throttle, got {}",
+                progress_events.len()
+            );
         }
     }
 
