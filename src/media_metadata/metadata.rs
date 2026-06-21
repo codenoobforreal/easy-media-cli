@@ -227,7 +227,28 @@ mod tests {
     fn normal_video_stream_converts_correctly() {
         let raw = sample_ffprobe_video_stream();
         let stream: VideoStream = raw.try_into().unwrap();
-        assert_debug_snapshot!(stream,@"");
+        assert_debug_snapshot!(stream,@r#"
+        VideoStream {
+            codec_name: "h264",
+            codec_long_name: "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            codec_tag_string: "avc1",
+            width: 1920,
+            height: 1080,
+            pix_fmt: "yuv420p",
+            is_avc: true,
+            r_frame_rate: Some(
+                25.0,
+            ),
+            avg_frame_rate: Some(
+                25.0,
+            ),
+            start_time: 0ns,
+            duration: 10.5s,
+            bit_rate: 1500000,
+            nb_frames: 262,
+            is_default: true,
+        }
+        "#);
     }
 
     #[test]
