@@ -6,8 +6,10 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use std::{
-    sync::{Arc, Mutex, MutexGuard},
-    thread::{self, JoinHandle},
+    sync::{
+        Arc, Mutex, MutexGuard,
+        mpsc::{Receiver, RecvTimeoutError},
+    },
     time::Duration,
 };
 
@@ -31,22 +33,23 @@ impl SyncUi {
         Ok(Self(inner))
     }
 
-    /// 阻塞主线程：一边驱动 `UI` 节流渲染，一边等待任务子线程执行完毕，返回子线程执行结果
-    pub fn block_on_task_thread(&self, task_join_handle: JoinHandle<Result<()>>) -> Result<()> {
+    /// 阻塞主线程，驱动节流渲染，等待任务子线程执行完毕
+    pub fn block_on_task_thread_finish_channel(&self, rx: &Receiver<Result<()>>) -> Result<()> {
         loop {
-            if task_join_handle.is_finished() {
-                return match task_join_handle.join() {
-                    Ok(result) => result,
-                    Err(_) => Err(anyhow!("Task execution thread panicked")),
-                };
-            }
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(result) => return result,
 
-            {
-                let mut ui = self.lock()?;
-                let _ = ui.tick_render();
-            }
+                Err(RecvTimeoutError::Timeout) => {
+                    let mut ui = self.lock()?;
+                    ui.tick_render()?;
+                }
 
-            thread::sleep(Duration::from_millis(10));
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(anyhow!(
+                        "Task execution thread panicked or exited unexpectedly"
+                    ));
+                }
+            }
         }
     }
 
@@ -64,6 +67,8 @@ impl SyncUi {
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::mpsc, thread};
+
     use super::*;
     use crate::{domain::Event, infra::MockEventBus, ui::MockRenderer};
     use insta::assert_debug_snapshot;
@@ -159,11 +164,12 @@ mod tests {
         let bus = MockEventBus::default();
         let renderer = Box::new(MockRenderer::default());
         let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
-        let handle = thread::spawn(|| {
+        let (tx, rx) = mpsc::channel::<Result<()>>();
+        thread::spawn(move || {
             thread::sleep(Duration::from_millis(20));
-            Ok(())
+            let _ = tx.send(Ok(()));
         });
-        let result = ui.block_on_task_thread(handle);
+        let result = ui.block_on_task_thread_finish_channel(&rx);
         assert!(result.is_ok());
     }
 
@@ -172,10 +178,11 @@ mod tests {
         let bus = MockEventBus::default();
         let renderer = Box::new(MockRenderer::default());
         let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
-        let handle = thread::spawn(|| {
+        let (_, rx) = mpsc::channel::<Result<()>>();
+        thread::spawn(move || {
             panic!("intentional test panic");
         });
-        let err = ui.block_on_task_thread(handle).unwrap_err();
-        assert_debug_snapshot!(err,@r#""Task execution thread panicked""#);
+        let err = ui.block_on_task_thread_finish_channel(&rx).unwrap_err();
+        assert_debug_snapshot!(err,@r#""Task execution thread panicked or exited unexpectedly""#);
     }
 }

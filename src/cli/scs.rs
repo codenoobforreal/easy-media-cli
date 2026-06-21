@@ -9,7 +9,11 @@ use crate::{
 };
 use anyhow::{Result, bail};
 use clap::{Args, value_parser};
-use std::{path::PathBuf, sync::Arc, thread};
+use std::{
+    path::PathBuf,
+    sync::{Arc, mpsc},
+    thread,
+};
 
 #[derive(Args, Debug)]
 pub struct ScsArgs {
@@ -70,10 +74,16 @@ pub fn handle_scs_command(
 
     let task_manager = TaskManager::new(event_bus);
     task_manager.bind_shutdown_listener()?;
-    let task_manager_clone = task_manager.clone();
-    let task_thread = thread::spawn(move || task_manager_clone.run_all(&tasks));
 
-    sync_ui.block_on_task_thread(task_thread)?;
+    let (task_thread_finish_tx, task_thread_finish_rx) = mpsc::channel::<Result<()>>();
+
+    let task_manager_clone = task_manager.clone();
+    thread::spawn(move || {
+        let res = task_manager_clone.run_all(&tasks);
+        let _ = task_thread_finish_tx.send(res);
+    });
+
+    sync_ui.block_on_task_thread_finish_channel(&task_thread_finish_rx)?;
     sync_ui.render_final(task_manager.is_cancelled())?;
 
     Ok(())
