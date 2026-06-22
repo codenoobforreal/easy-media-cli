@@ -28,6 +28,10 @@ impl EventBus for BenchEventBus {
         Ok(())
     }
 
+    fn publish_critical(&self, event: Event) -> Result<()> {
+        unimplemented!()
+    }
+
     fn subscribe(&self, _handler: EventHandler) -> Result<()> {
         unimplemented!()
     }

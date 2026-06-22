@@ -6,7 +6,10 @@ pub type EventHandler = Arc<dyn Fn(Event) -> Result<()> + Send + Sync>;
 pub type HandlerStorage = Mutex<Vec<EventHandler>>;
 
 pub trait EventBus: Send + Sync {
+    /// 尽力交付事件给所有订阅者，单个订阅者的错误会被忽略（后续可添加记录），不会中断发布流程
     fn publish(&self, event: Event) -> Result<()>;
+    /// 任一订阅者失败则立即返回错误，后续订阅者不会收到事件
+    fn publish_critical(&self, event: Event) -> Result<()>;
     fn subscribe(&self, handler: EventHandler) -> Result<()>;
 }
 
@@ -16,8 +19,23 @@ pub struct DefaultEventBus {
 }
 
 impl EventBus for DefaultEventBus {
+    /// 使用克隆处理器的实现，避免锁竞争
     fn publish(&self, event: Event) -> Result<()> {
-        // 使用克隆处理器的实现
+        let handlers_snapshot = {
+            self.handlers
+                .lock()
+                .map_err(|e| anyhow!("handlers lock mutex poisoned: {e}"))?
+                .clone()
+        };
+
+        for handler in handlers_snapshot {
+            let _ = handler(event.clone());
+        }
+
+        Ok(())
+    }
+
+    fn publish_critical(&self, event: Event) -> Result<()> {
         let handlers_snapshot = {
             self.handlers
                 .lock()
@@ -48,7 +66,10 @@ pub mod tests {
     use super::*;
     use crate::domain::sample_test_metadata;
     use insta::assert_debug_snapshot;
-    use std::sync::Arc;
+    use std::{
+        panic::{AssertUnwindSafe, catch_unwind},
+        sync::Arc,
+    };
 
     #[derive(Default)]
     pub struct MockEventBus {
@@ -64,20 +85,28 @@ pub mod tests {
 
     impl EventBus for MockEventBus {
         fn publish(&self, event: Event) -> Result<()> {
-            // 先执行所有订阅者回调，与真实总线行为一致
+            self.events.lock().unwrap().push(event.clone());
+            let handlers = self.handlers.lock().unwrap();
+            for handler in handlers.iter() {
+                let _ = handler(event.clone());
+            }
+            drop(handlers);
+
+            Ok(())
+        }
+
+        fn publish_critical(&self, event: Event) -> Result<()> {
+            self.events.lock().unwrap().push(event.clone());
             let handlers = self.handlers.lock().unwrap();
             for handler in handlers.iter() {
                 handler(event.clone())?;
             }
             drop(handlers);
 
-            // 保留原有的事件收集能力，用于测试断言
-            self.events.lock().unwrap().push(event);
             Ok(())
         }
 
         fn subscribe(&self, handler: EventHandler) -> Result<()> {
-            // 真正保存订阅处理器，publish 时依次调用
             self.handlers.lock().unwrap().push(handler);
             Ok(())
         }
@@ -148,16 +177,49 @@ pub mod tests {
     }
 
     #[test]
-    fn subscriber_error_propagates_to_publish() {
+    fn publish_critical_propagates_handler_error() {
         let bus = DefaultEventBus::default();
         bus.subscribe(Arc::new(|_| Err(anyhow!("Handler failed"))))
             .unwrap();
         let err = bus
-            .publish(Event::TaskStarted {
+            .publish_critical(Event::TaskStarted {
                 metadata: sample_test_metadata(1),
             })
             .unwrap_err();
         assert_debug_snapshot!(err,@r#""Handler failed""#);
+    }
+
+    #[test]
+    fn publish_critical_stops_on_first_error() {
+        let bus = DefaultEventBus::default();
+        let counter = Arc::new(Mutex::new(0));
+        let counter_clone = counter.clone();
+        bus.subscribe(Arc::new(|_| Err(anyhow!("Failed")))).unwrap();
+        bus.subscribe(Arc::new(move |_| {
+            *counter_clone.lock().unwrap() += 1;
+            Ok(())
+        }))
+        .unwrap();
+        let err = bus.publish_critical(Event::Shutdown).unwrap_err();
+        assert_debug_snapshot!(err,@r#""Failed""#);
+        // assert!(err.to_string().contains("Failed"));
+        assert_eq!(*counter.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn publish_ignores_handler_error() {
+        let bus = DefaultEventBus::default();
+        let counter = Arc::new(Mutex::new(0));
+        let counter_clone = counter.clone();
+        bus.subscribe(Arc::new(|_| Err(anyhow!("Failed")))).unwrap();
+        bus.subscribe(Arc::new(move |_| {
+            *counter_clone.lock().unwrap() += 1;
+            Ok(())
+        }))
+        .unwrap();
+        let result = bus.publish(Event::Shutdown);
+        assert!(result.is_ok());
+        assert_eq!(*counter.lock().unwrap(), 1);
     }
 
     #[test]
@@ -185,5 +247,45 @@ pub mod tests {
         bus.publish(Event::Shutdown).unwrap();
         assert_eq!(*count.lock().unwrap(), 2);
         assert_eq!(bus.events().len(), 2);
+    }
+
+    #[test]
+    fn mock_publish_ignores_handler_error() {
+        let bus = MockEventBus::default();
+        bus.subscribe(Arc::new(|_| Err(anyhow!("oops")))).unwrap();
+        assert!(bus.publish(Event::Shutdown).is_ok());
+        assert_eq!(bus.events().len(), 1);
+    }
+
+    #[test]
+    fn mock_publish_critical_propagates_error() {
+        let bus = MockEventBus::default();
+        bus.subscribe(Arc::new(|_| Err(anyhow!("oops")))).unwrap();
+        assert!(bus.publish_critical(Event::Shutdown).is_err());
+        assert!(!bus.events().is_empty());
+    }
+
+    #[test]
+    fn publish_returns_error_on_poisoned_mutex() {
+        let bus = DefaultEventBus::default();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = bus.handlers.lock().unwrap();
+            panic!("intentional panic to poison mutex");
+        }));
+        assert!(result.is_err());
+        let err = bus.publish(Event::Shutdown).unwrap_err();
+        assert_debug_snapshot!(err,@r#""handlers lock mutex poisoned: poisoned lock: another task failed inside""#);
+    }
+
+    #[test]
+    fn publish_critical_returns_error_on_poisoned_mutex() {
+        let bus = DefaultEventBus::default();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = bus.handlers.lock().unwrap();
+            panic!("intentional panic to poison mutex");
+        }));
+        assert!(result.is_err());
+        let err = bus.publish_critical(Event::Shutdown).unwrap_err();
+        assert_debug_snapshot!(err,@r#""handlers lock mutex poisoned: poisoned lock: another task failed inside""#);
     }
 }
