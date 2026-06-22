@@ -18,13 +18,12 @@ const RESULT_LIST_TITLE: &str = "Task results:";
 
 /// 所有 UI 实现（终端、Web、GUI 等）都必须实现此特性。核心引擎仅通过此接口触发渲染，并与具体实现完全解耦
 pub trait Renderer: Send + Sync {
-    fn render_running(&mut self, stats: &Stats, tasks: &HashMap<usize, TaskMetadata>)
-    -> Result<()>;
+    fn render_running(&mut self, stats: &Stats, tasks: &[(usize, &TaskMetadata)]) -> Result<()>;
 
     fn render_final(
         &mut self,
         stats: &Stats,
-        tasks: &HashMap<usize, TaskMetadata>,
+        tasks: &[(usize, &TaskMetadata)],
         message: &str,
     ) -> Result<()>;
 }
@@ -85,28 +84,25 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
         Ok(())
     }
 
-    fn write_running_tasks(w: &mut impl Write, tasks: &HashMap<usize, TaskMetadata>) -> Result<()> {
-        for task in tasks.values().filter(|t| t.status() == Status::Running) {
+    fn write_running_tasks(w: &mut impl Write, tasks: &[(usize, &TaskMetadata)]) -> Result<()> {
+        for (_, task) in tasks.iter().filter(|(_, t)| t.status() == Status::Running) {
             writeln!(w, "\n{}", task.name())?;
             render_progress_bar(w, task.progress().as_ref())
                 .with_context(|| "Failed to render progress bar")?;
         }
-
         Ok(())
     }
 
-    fn write_failed_tasks(w: &mut impl Write, tasks: &HashMap<usize, TaskMetadata>) -> Result<()> {
-        let failed_tasks: Vec<_> = tasks
-            .values()
-            .filter(|t| t.status() == Status::Failed)
+    fn write_failed_tasks(w: &mut impl Write, tasks: &[(usize, &TaskMetadata)]) -> Result<()> {
+        let failed: Vec<_> = tasks
+            .iter()
+            .filter(|(_, t)| t.status() == Status::Failed)
             .collect();
-
-        if failed_tasks.is_empty() {
+        if failed.is_empty() {
             return Ok(());
         }
-
         writeln!(w, "{FAILED_LIST_TITLE}")?;
-        for task in failed_tasks {
+        for (_, task) in failed {
             write!(
                 w,
                 "[{}]:\n{}\n",
@@ -114,7 +110,6 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
                 task.error().unwrap_or_default()
             )?;
         }
-
         Ok(())
     }
 
@@ -137,21 +132,18 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
         Ok(())
     }
 
-    fn write_task_results(w: &mut impl Write, tasks: &HashMap<usize, TaskMetadata>) -> Result<()> {
-        let tasks_with_result: Vec<_> = tasks.values().filter(|t| t.result().is_some()).collect();
-
-        if tasks_with_result.is_empty() {
+    fn write_task_results(w: &mut impl Write, tasks: &[(usize, &TaskMetadata)]) -> Result<()> {
+        let with_result: Vec<_> = tasks.iter().filter(|(_, t)| t.result().is_some()).collect();
+        if with_result.is_empty() {
             return Ok(());
         }
-
         writeln!(w, "{RESULT_LIST_TITLE}")?;
-        for task in tasks_with_result {
+        for (_, task) in with_result {
             if let Some(result) = task.result() {
                 writeln!(w, "[{}]: {}", task.name(), result)?;
             }
         }
         writeln!(w)?;
-
         Ok(())
     }
 
@@ -168,11 +160,7 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
 }
 
 impl<O: Write + Send + Sync, E: Write + Send + Sync> Renderer for DefaultRenderer<O, E> {
-    fn render_running(
-        &mut self,
-        stats: &Stats,
-        tasks: &HashMap<usize, TaskMetadata>,
-    ) -> Result<()> {
+    fn render_running(&mut self, stats: &Stats, tasks: &[(usize, &TaskMetadata)]) -> Result<()> {
         let result = (|| -> Result<()> {
             if self.last_ui_lines > 0 {
                 self.stdout.queue(MoveUp(self.last_ui_lines))?;
@@ -202,7 +190,7 @@ impl<O: Write + Send + Sync, E: Write + Send + Sync> Renderer for DefaultRendere
     fn render_final(
         &mut self,
         stats: &Stats,
-        tasks: &HashMap<usize, TaskMetadata>,
+        tasks: &[(usize, &TaskMetadata)],
         message: &str,
     ) -> Result<()> {
         let result = (|| -> Result<()> {
@@ -264,7 +252,7 @@ pub mod tests {
         fn render_running(
             &mut self,
             _stats: &Stats,
-            _tasks: &HashMap<usize, TaskMetadata>,
+            _tasks: &[(usize, &TaskMetadata)],
         ) -> Result<()> {
             *self.running_calls.lock().unwrap() += 1;
             Ok(())
@@ -273,7 +261,7 @@ pub mod tests {
         fn render_final(
             &mut self,
             _stats: &Stats,
-            _tasks: &HashMap<usize, TaskMetadata>,
+            _tasks: &[(usize, &TaskMetadata)],
             message: &str,
         ) -> Result<()> {
             *self.final_calls.lock().unwrap() += 1;
@@ -282,7 +270,6 @@ pub mod tests {
         }
     }
 
-    // 构造内存渲染器（同模块可访问私有字段）
     fn mem_renderer() -> MemRender {
         DefaultRenderer::<Vec<u8>, Vec<u8>>::new(vec![], vec![])
     }
@@ -313,20 +300,16 @@ pub mod tests {
     #[test]
     fn write_failed_tasks_empty_when_no_failures() {
         let mut buf = Vec::new();
-        MemRender::write_failed_tasks(&mut buf, &HashMap::new()).unwrap();
+        MemRender::write_failed_tasks(&mut buf, &[]).unwrap();
         assert!(buf.is_empty());
     }
 
     #[test]
     fn write_failed_tasks_only_lists_failed() {
-        let mut tasks = HashMap::new();
-        let mut failed = sample_test_metadata_with_all(1, "bad_task", Status::Failed);
-        failed.set_error(Some("parse error"));
-        tasks.insert(1, failed);
-        tasks.insert(
-            2,
-            sample_test_metadata_with_all(2, "good_task", Status::Completed),
-        );
+        let mut failed_meta = sample_test_metadata_with_all(1, "bad_task", Status::Failed);
+        failed_meta.set_error(Some("parse error"));
+        let good_meta = sample_test_metadata_with_all(2, "good_task", Status::Completed);
+        let tasks = vec![(1, &failed_meta), (2, &good_meta)];
         let mut buf = Vec::new();
         MemRender::write_failed_tasks(&mut buf, &tasks).unwrap();
         let out = String::from_utf8(buf).unwrap();
@@ -336,20 +319,16 @@ pub mod tests {
     #[test]
     fn write_task_results_empty_when_no_results() {
         let mut buf = Vec::new();
-        MemRender::write_task_results(&mut buf, &HashMap::new()).unwrap();
+        MemRender::write_task_results(&mut buf, &[]).unwrap();
         assert!(buf.is_empty());
     }
 
     #[test]
     fn write_task_results_only_lists_with_result() {
-        let mut tasks = HashMap::new();
         let mut with_result = sample_test_metadata_with_all(1, "task1", Status::Completed);
         with_result.set_result(Some("output.mp4"));
-        tasks.insert(1, with_result);
-        tasks.insert(
-            2,
-            sample_test_metadata_with_all(2, "task2", Status::Completed),
-        );
+        let complete = sample_test_metadata_with_all(2, "task2", Status::Completed);
+        let tasks = vec![(1, &with_result), (2, &complete)];
         let mut buf = Vec::new();
         MemRender::write_task_results(&mut buf, &tasks).unwrap();
         let out = String::from_utf8(buf).unwrap();
@@ -359,7 +338,7 @@ pub mod tests {
     #[test]
     fn render_running_first_render_no_cursor_move() {
         let mut r = mem_renderer();
-        r.render_running(&sample_stats(), &HashMap::new()).unwrap();
+        r.render_running(&sample_stats(), &[]).unwrap();
         let stdout = String::from_utf8_lossy(&r.stdout);
         assert!(stdout.contains("Total: 0"));
         assert_eq!(r.last_ui_lines, 1);
@@ -368,10 +347,9 @@ pub mod tests {
     #[test]
     fn render_running_second_render_moves_cursor_up() {
         let mut r = mem_renderer();
-        let tasks = HashMap::new();
-        r.render_running(&sample_stats(), &tasks).unwrap();
+        r.render_running(&sample_stats(), &[]).unwrap();
         let first_lines = r.last_ui_lines;
-        r.render_running(&sample_stats(), &tasks).unwrap();
+        r.render_running(&sample_stats(), &[]).unwrap();
         // 第二次渲染会先回退光标，行数保持一致
         assert_eq!(r.last_ui_lines, first_lines);
     }
@@ -379,13 +357,11 @@ pub mod tests {
     #[test]
     fn render_final_outputs_all_sections() {
         let mut r = mem_renderer();
-        let mut tasks = HashMap::new();
         let mut failed = sample_test_metadata_with_all(1, "fail_task", Status::Failed);
         failed.set_error(Some("io error"));
         let mut success = sample_test_metadata_with_all(2, "ok_task", Status::Completed);
         success.set_result(Some("done.mp4"));
-        tasks.insert(1, failed);
-        tasks.insert(2, success);
+        let tasks = vec![(1, &failed), (2, &success)];
         r.render_final(&sample_stats(), &tasks, "All tasks finished!")
             .unwrap();
         let stdout = String::from_utf8_lossy(&r.stdout);

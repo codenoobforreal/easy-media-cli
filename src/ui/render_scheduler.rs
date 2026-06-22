@@ -49,8 +49,8 @@ impl RenderScheduler {
         }
 
         let stats = self.state_store.calculate_overall_stats();
-        self.renderer
-            .render_running(&stats, self.state_store.tasks())?;
+        let task_list = self.state_store.task_list();
+        self.renderer.render_running(&stats, &task_list)?;
         self.has_state_update = false;
         self.last_render_time = now;
 
@@ -59,13 +59,14 @@ impl RenderScheduler {
 
     pub fn render_final(&mut self, is_cancelled: bool) -> Result<()> {
         let stats = self.state_store.get_final_stats();
+
         let message = if is_cancelled {
             Self::CANCEL_MSG
         } else {
             Self::SUCCESS_MSG
         };
-        self.renderer
-            .render_final(&stats, self.state_store.tasks(), message)
+        let task_list = self.state_store.task_list();
+        self.renderer.render_final(&stats, &task_list, message)
     }
 
     pub fn with_renderer(renderer: Box<dyn Renderer>) -> Self {
@@ -116,7 +117,7 @@ pub mod tests {
     fn default_has_no_pending_updates() {
         let (s, _, _) = sample_ui_scheduler();
         assert!(!s.has_state_update);
-        assert!(s.state_store.tasks().is_empty());
+        assert!(s.state_store.task_list().is_empty());
     }
 
     #[test]

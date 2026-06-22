@@ -28,7 +28,7 @@ impl EventBus for BenchEventBus {
         Ok(())
     }
 
-    fn publish_critical(&self, event: Event) -> Result<()> {
+    fn publish_critical(&self, _event: Event) -> Result<()> {
         unimplemented!()
     }
 

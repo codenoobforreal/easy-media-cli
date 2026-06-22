@@ -139,9 +139,10 @@ impl TaskStateStore {
         }
     }
 
-    /// 只读访问任务集合，供渲染器使用
-    pub fn tasks(&self) -> &HashMap<usize, TaskMetadata> {
-        &self.tasks
+    pub fn task_list(&self) -> Vec<(usize, &TaskMetadata)> {
+        let mut entries: Vec<_> = self.tasks.iter().map(|(&id, meta)| (id, meta)).collect();
+        entries.sort_by_key(|(id, _)| *id); // 决定顺序：按任务 ID 升序
+        entries
     }
 
     /// 清空所有状态，支持复用
@@ -160,7 +161,7 @@ mod tests {
     #[test]
     fn new_store_is_empty() {
         let store = TaskStateStore::new();
-        assert!(store.tasks().is_empty());
+        assert!(store.task_list().is_empty());
         assert_eq!(store.calculate_overall_stats().total(), 0);
     }
 
@@ -192,17 +193,21 @@ mod tests {
         store.handle_event(&Event::TaskStarted {
             metadata: sample_test_metadata_with_id_name(1, "task_001"),
         });
-        assert_eq!(store.tasks().len(), 1);
-        let task = store.tasks().get(&1).unwrap();
-        assert_debug_snapshot!(task,@r#"
-        TaskMetadata {
-            id: 1,
-            name: "task_001",
-            status: Pending,
-            progress: None,
-            error: None,
-            result: None,
-        }
+        assert_eq!(store.task_list().len(), 1);
+        assert_debug_snapshot!(store.task_list().first(),@r#"
+        Some(
+            (
+                1,
+                TaskMetadata {
+                    id: 1,
+                    name: "task_001",
+                    status: Pending,
+                    progress: None,
+                    error: None,
+                    result: None,
+                },
+            ),
+        )
         "#);
     }
 
@@ -216,22 +221,26 @@ mod tests {
             id: 1,
             progress: sample_progress(),
         });
-        let task = store.tasks().get(&1).unwrap();
-        assert_debug_snapshot!(task,@r#"
-        TaskMetadata {
-            id: 1,
-            name: "t1",
-            status: Running,
-            progress: Some(
-                Progress {
-                    percentage: 0.0,
-                    elapsed: 0ns,
-                    eta: None,
+        assert_debug_snapshot!(store.task_list().first(),@r#"
+        Some(
+            (
+                1,
+                TaskMetadata {
+                    id: 1,
+                    name: "t1",
+                    status: Running,
+                    progress: Some(
+                        Progress {
+                            percentage: 0.0,
+                            elapsed: 0ns,
+                            eta: None,
+                        },
+                    ),
+                    error: None,
+                    result: None,
                 },
             ),
-            error: None,
-            result: None,
-        }
+        )
         "#);
     }
 
@@ -242,7 +251,7 @@ mod tests {
             id: 999,
             progress: sample_progress(),
         });
-        assert!(store.tasks().is_empty());
+        assert!(store.task_list().is_empty());
     }
 
     #[test]
@@ -252,7 +261,10 @@ mod tests {
             metadata: sample_test_metadata_with_id_name(1, "t1"),
         });
         store.handle_event(&Event::TaskCompleted { id: 1 });
-        assert_eq!(store.tasks().get(&1).unwrap().status(), Status::Completed);
+        assert_eq!(
+            store.task_list().first().unwrap().1.status(),
+            Status::Completed
+        );
     }
 
     #[test]
@@ -266,7 +278,7 @@ mod tests {
             summary: "output.mp4".into(),
         });
         assert_eq!(
-            store.tasks().get(&1).unwrap().result().unwrap(),
+            store.task_list().first().unwrap().1.result().unwrap(),
             "output.mp4"
         );
     }
@@ -281,18 +293,22 @@ mod tests {
             id: 1,
             error: "io error".into(),
         });
-        let task = store.tasks().get(&1).unwrap();
-        assert_debug_snapshot!(task,@r#"
-        TaskMetadata {
-            id: 1,
-            name: "t1",
-            status: Failed,
-            progress: None,
-            error: Some(
-                "io error",
+        assert_debug_snapshot!(store.task_list().first(),@r#"
+        Some(
+            (
+                1,
+                TaskMetadata {
+                    id: 1,
+                    name: "t1",
+                    status: Failed,
+                    progress: None,
+                    error: Some(
+                        "io error",
+                    ),
+                    result: None,
+                },
             ),
-            result: None,
-        }
+        )
         "#);
     }
 
@@ -303,7 +319,10 @@ mod tests {
             metadata: sample_test_metadata_with_id_name(1, "t1"),
         });
         store.handle_event(&Event::TaskCancelled { id: 1 });
-        assert_eq!(store.tasks().get(&1).unwrap().status(), Status::Cancelled);
+        assert_eq!(
+            store.task_list().first().unwrap().1.status(),
+            Status::Cancelled
+        );
     }
 
     #[test]
@@ -333,7 +352,7 @@ mod tests {
     fn shutdown_event_does_nothing() {
         let mut store = TaskStateStore::new();
         store.handle_event(&Event::Shutdown);
-        assert!(store.tasks().is_empty());
+        assert!(store.task_list().is_empty());
     }
 
     #[test]
@@ -418,7 +437,7 @@ mod tests {
             cancelled: 0,
         });
         store.clear();
-        assert!(store.tasks().is_empty());
+        assert!(store.task_list().is_empty());
         assert_eq!(store.calculate_overall_stats().total(), 0);
     }
 
