@@ -60,14 +60,8 @@ impl TaskManager {
             }
 
             let id = task.id();
-            let task_metadata = TaskMetadata::builder()
-                .id(id)
-                .name(
-                    task.name()
-                        .with_context(|| "Failed to get name of task".to_owned())?,
-                )
-                .build();
-
+            let task_name = task.name().map_or(format!("Task-{id}"), str::to_owned);
+            let task_metadata = TaskMetadata::builder().id(id).name(task_name).build();
             self.event_bus.publish(Event::TaskStarted {
                 metadata: task_metadata,
             })?;
@@ -288,13 +282,26 @@ mod tests {
     }
 
     #[test]
-    fn task_without_name_returns_context_error() {
+    fn nameless_task_generates_placeholder_name_and_runs() {
         let bus = Arc::new(MockEventBus::default());
         let mgr = TaskManager::new(bus.clone());
         let nameless_task = MockTask::new(10, None);
-        let tasks: &[Arc<dyn Task>] = &[Arc::new(nameless_task)];
-        let err = mgr.run_all(tasks).unwrap_err();
-        assert_debug_snapshot!(err,@"Failed to get name of task");
+        let tasks: &[Arc<dyn Task>] = &[Arc::new(nameless_task.clone())];
+        let result = mgr.run_all(tasks);
+        assert!(result.is_ok());
+        assert!(nameless_task.was_run());
+        let events = bus.events();
+        let task_started = events.iter().find_map(|e| {
+            if let Event::TaskStarted { metadata } = e {
+                Some(metadata.clone())
+            } else {
+                None
+            }
+        });
+        assert!(task_started.is_some());
+        let metadata = task_started.unwrap();
+        assert_eq!(metadata.id(), 10);
+        assert_eq!(metadata.name(), "Task-10");
     }
 
     #[test]
