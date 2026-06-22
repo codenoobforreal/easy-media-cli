@@ -1,6 +1,6 @@
 use crate::{
     common::join_errors_with_summary,
-    domain::{Event, Task, TaskMetadata},
+    domain::{Event, Task, TaskError, TaskMetadata},
     infra::{CancelToken, DefaultCancelToken, EventBus},
 };
 use anyhow::{Context, Result};
@@ -77,19 +77,17 @@ impl TaskManager {
                     self.event_bus.publish(Event::TaskCompleted { id })?;
                     success_count += 1;
                 }
-                Err(e) => {
-                    // TODO 错误是否是取消任务造成的需要使用 thiserror 库进行判断，现在暂时简单的由 `is_cancelled` 进行判断，当前判断方式大概不能保证正确性
-                    if self.is_cancelled() {
-                        self.event_bus.publish(Event::TaskCancelled { id })?;
-                        cancelled_count += 1;
-                    } else {
-                        self.event_bus.publish(Event::TaskFailed {
-                            id,
-                            error: e.to_string(),
-                        })?;
-                        failed_count += 1;
-                        system_errors.push(e);
-                    }
+                Err(TaskError::Cancelled) => {
+                    self.event_bus.publish(Event::TaskCancelled { id })?;
+                    cancelled_count += 1;
+                }
+                Err(TaskError::Failed(e)) => {
+                    self.event_bus.publish(Event::TaskFailed {
+                        id,
+                        error: e.to_string(),
+                    })?;
+                    failed_count += 1;
+                    system_errors.push(e);
                 }
             }
         }
@@ -297,5 +295,42 @@ mod tests {
         let tasks: &[Arc<dyn Task>] = &[Arc::new(nameless_task)];
         let err = mgr.run_all(tasks).unwrap_err();
         assert_debug_snapshot!(err,@"Failed to get name of task");
+    }
+
+    #[test]
+    fn task_returning_cancelled_publishes_event_and_continues() {
+        let bus = Arc::new(MockEventBus::default());
+        let mgr = TaskManager::new(bus.clone());
+        let task_cancel = MockTask::new(1, Some("voluntary_cancel"));
+        task_cancel.set_cancelled();
+        let task_ok = MockTask::new(2, Some("still_runs"));
+        let tasks: Vec<Arc<dyn Task>> = vec![Arc::new(task_cancel), Arc::new(task_ok)];
+        mgr.run_all(&tasks).unwrap();
+        let events = bus.events();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::TaskCancelled { id: 1 }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::TaskCompleted { id: 2 }))
+        );
+        let final_event = events.last().expect("should have final event");
+        match final_event {
+            Event::AllTasksCompleted {
+                total,
+                success,
+                failed,
+                cancelled,
+            } => {
+                assert_eq!(*total, 2);
+                assert_eq!(*success, 1);
+                assert_eq!(*failed, 0);
+                assert_eq!(*cancelled, 1, "cancelled count must be 1");
+            }
+            other => panic!("Expected AllTasksCompleted, got {other:?}"),
+        }
     }
 }

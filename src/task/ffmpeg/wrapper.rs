@@ -2,7 +2,7 @@
 
 use crate::{
     common::join_errors_with_summary,
-    domain::{Event, Task},
+    domain::{Event, Task, TaskError},
     ffmpeg_progress::{FfmpegProgressParser, ProgressTracker},
     infra::{
         CancelToken, CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, EventBus,
@@ -11,7 +11,7 @@ use crate::{
     media_metadata::MetadataFetcher,
     task::{ExecutionMode, ffmpeg::FfmpegTask},
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use std::{
     io::{BufRead, BufReader, Read},
     process::ExitStatus,
@@ -49,8 +49,18 @@ impl<T: FfmpegTask> Task for FfmpegTaskWrapper<T> {
         self.inner.name()
     }
 
-    fn run(&self, event_bus: &Arc<dyn EventBus>, cancel_token: &dyn CancelToken) -> Result<()> {
-        self.execute_ffmpeg_flow(event_bus, cancel_token)
+    fn run(
+        &self,
+        event_bus: &Arc<dyn EventBus>,
+        cancel_token: &dyn CancelToken,
+    ) -> Result<(), TaskError> {
+        if cancel_token.is_cancelled() {
+            return Err(TaskError::Cancelled);
+        }
+        match self.inner.execution_mode() {
+            ExecutionMode::Streaming => self.run_streaming_mode(event_bus, cancel_token),
+            ExecutionMode::Capturing => self.run_capturing_mode(cancel_token),
+        }
     }
 }
 
@@ -69,29 +79,19 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         }
     }
 
-    /// 通用 `FFmpeg` 执行逻辑，仅做步骤编排，不做具体实现
-    fn execute_ffmpeg_flow(
-        &self,
-        event_bus: &Arc<dyn EventBus>,
-        cancel_token: &dyn CancelToken,
-    ) -> Result<()> {
-        match self.inner.execution_mode() {
-            ExecutionMode::Streaming => self.run_streaming_mode(event_bus, cancel_token),
-            ExecutionMode::Capturing => self.run_capturing_mode(cancel_token),
-        }
-    }
-
     fn run_streaming_mode(
         &self,
         event_bus: &Arc<dyn EventBus>,
         cancel_token: &dyn CancelToken,
-    ) -> Result<()> {
+    ) -> Result<(), TaskError> {
         if self.inner.needs_output_dir() {
             let output = self.inner.output();
             let output_dir = output
                 .and_then(|o| o.parent())
                 .with_context(|| format!("Failed to get parent path of {output:?}"))?;
-            self.file_system.create_dir_all(output_dir)?;
+            self.file_system
+                .create_dir_all(output_dir)
+                .with_context(|| format!("Failed to create dir for {}", output_dir.display()))?;
         }
 
         let metadata = self.metadata_fetcher.fetch_metadata(self.inner.input())?;
@@ -106,10 +106,10 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         self.finalize_streaming_result(exit_status, io_handles, cancel_token)
     }
 
-    fn run_capturing_mode(&self, cancel_token: &dyn CancelToken) -> Result<()> {
+    fn run_capturing_mode(&self, cancel_token: &dyn CancelToken) -> Result<(), TaskError> {
         // 前置检查：启动前先判断是否已取消
         if cancel_token.is_cancelled() {
-            bail!("Task cancelled by user");
+            return Err(TaskError::Cancelled);
         }
 
         let args = self.inner.build_args();
@@ -117,7 +117,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
 
         // 执行后检查取消（虽然中途不能取消，但结束后统一判断语义）
         if cancel_token.is_cancelled() {
-            bail!("Task cancelled by user");
+            return Err(TaskError::Cancelled);
         }
 
         // 调用业务任务的输出处理钩子（比如解析 ffprobe JSON）
@@ -125,10 +125,11 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
             .handle_captured_output(&output.stdout, &output.stderr)?;
 
         if !output.status.success() {
-            match output.status.code() {
-                Some(code) => bail!("FFmpeg exited with non-zero exit code: {code}"),
-                None => bail!("FFmpeg process terminated by signal/crash, no exit code"),
-            }
+            let err = match output.status.code() {
+                Some(code) => anyhow!("FFmpeg exited with non-zero exit code: {code}"),
+                None => anyhow!("FFmpeg process terminated by signal/crash, no exit code"),
+            };
+            return Err(TaskError::Failed(err));
         }
 
         Ok(())
@@ -210,7 +211,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         exit_status: ExitStatus,
         io_handles: IoThreadHandles,
         cancel_token: &dyn CancelToken,
-    ) -> Result<()> {
+    ) -> Result<(), TaskError> {
         let stdout_res = io_handles
             .stdout
             .join()
@@ -221,7 +222,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
             .map_err(|_| anyhow!("Stderr processing thread panicked"))?;
 
         if cancel_token.is_cancelled() {
-            return Err(anyhow!("Task cancelled by user"));
+            return Err(TaskError::Cancelled);
         }
 
         let mut errors = Vec::new();
@@ -250,7 +251,9 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
             Ok(())
         } else {
             let summary = format!("Task {} failed with {} errors", self.id(), errors.len());
-            Err(join_errors_with_summary(summary, &errors))
+            Err(TaskError::Failed(join_errors_with_summary(
+                summary, &errors,
+            )))
         }
     }
 
@@ -336,7 +339,7 @@ mod tests {
         tasks::MediaMetadataGetter,
         tasks::ThumbnailGenerator,
     };
-    use insta::assert_debug_snapshot;
+    use insta::{assert_debug_snapshot, assert_snapshot};
     use std::path::Path;
 
     struct StreamingTestSuite {
@@ -412,7 +415,15 @@ mod tests {
             let suite = CapturingTestSuite::new();
             suite.cancel.set_cancelled(true);
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""Task cancelled by user""#);
+            assert_snapshot!(err,@"Task cancelled by user");
+        }
+
+        #[test]
+        fn pre_cancel_in_streaming_aborts_early() {
+            let suite = StreamingTestSuite::new();
+            suite.cancel.set_cancelled(true);
+            let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
+            assert_snapshot!(err, @"Task cancelled by user");
         }
 
         #[test]
@@ -424,7 +435,11 @@ mod tests {
                 vec![],
             );
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""FFmpeg exited with non-zero exit code: 2""#);
+            assert_debug_snapshot!(err,@r#"
+            Failed(
+                "FFmpeg exited with non-zero exit code: 2",
+            )
+            "#);
         }
 
         #[test]
@@ -436,7 +451,11 @@ mod tests {
                 vec![],
             );
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""FFmpeg exited with non-zero exit code: -1""#);
+            assert_debug_snapshot!(err,@r#"
+            Failed(
+                "FFmpeg exited with non-zero exit code: -1",
+            )
+            "#);
         }
 
         #[test]
@@ -447,7 +466,7 @@ mod tests {
                 .set_capture_ok(exit_status(true), vec![], vec![]);
             suite.cancel.set_cancelled(true);
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""Task cancelled by user""#);
+            assert_snapshot!(err,@"Task cancelled by user");
         }
     }
 
@@ -481,7 +500,11 @@ mod tests {
                 .runner
                 .set_spawn_ok(vec![], b"Invalid argument".to_vec(), exit_status(false));
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err, @r#""Task 1 failed with 1 errors\n- Error {\n    context: \"stderr:\\nInvalid argument\",\n    source: \"FFmpeg exited with non-zero exit code: 1\",\n}""#);
+            assert_debug_snapshot!(err, @r#"
+            Failed(
+                "Task 1 failed with 1 errors\n- Error {\n    context: \"stderr:\\nInvalid argument\",\n    source: \"FFmpeg exited with non-zero exit code: 1\",\n}",
+            )
+            "#);
         }
 
         #[test]
@@ -492,7 +515,11 @@ mod tests {
                 .runner
                 .set_spawn_ok(vec![], vec![], exit_status(false));
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err, @r#""Task 1 failed with 1 errors\n- \"FFmpeg exited with non-zero exit code: 1\"""#);
+            assert_debug_snapshot!(err, @r#"
+            Failed(
+                "Task 1 failed with 1 errors\n- \"FFmpeg exited with non-zero exit code: 1\"",
+            )
+            "#);
         }
 
         #[test]
@@ -514,20 +541,23 @@ mod tests {
                 .runner
                 .set_spawn_ok(vec![], vec![], exit_status_with_code(3));
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""Task 1 failed with 1 errors\n- \"FFmpeg exited with non-zero exit code: 3\"""#);
+            assert_debug_snapshot!(err,@r#"
+            Failed(
+                "Task 1 failed with 1 errors\n- \"FFmpeg exited with non-zero exit code: 3\"",
+            )
+            "#);
         }
 
         #[test]
         fn mid_execution_cancel_kills_process() {
             let suite = StreamingTestSuite::new();
             suite.fetcher.set_ok(MediaMetadata::default());
-            // 仅传入退出状态，不再手动Box包装child
-            let exit_ok = exit_status(true);
-            suite.runner.set_spawn_ok(vec![], vec![], exit_ok);
+            suite.runner.set_spawn_ok(vec![], vec![], exit_status(true));
             suite.runner.set_spawn_poll_count(100);
-            suite.cancel.set_cancelled(true);
+            // 在第二次 is_cancelled 检查时自动触发取消（因为此时子进程已启动）
+            suite.cancel.cancel_after(2);
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""Task cancelled by user""#);
+            assert_snapshot!(err, @"Task cancelled by user");
             let child_inner = suite.runner.last_child_inner().unwrap();
             assert!(child_inner.lock().unwrap().kill_called());
         }
@@ -537,7 +567,11 @@ mod tests {
             let suite = StreamingTestSuite::new();
             suite.fetcher.set_err("Probe failed");
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""Probe failed""#);
+            assert_debug_snapshot!(err,@r#"
+            Failed(
+                "Probe failed",
+            )
+            "#);
         }
 
         #[test]
@@ -563,7 +597,11 @@ mod tests {
             suite.fetcher.set_ok(MediaMetadata::default());
             suite.runner.set_spawn_err("ffmpeg executable not found");
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""ffmpeg executable not found""#);
+            assert_debug_snapshot!(err,@r#"
+            Failed(
+                "ffmpeg executable not found",
+            )
+            "#);
         }
 
         #[test]

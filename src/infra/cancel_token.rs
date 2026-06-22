@@ -23,16 +23,27 @@ impl CancelToken for DefaultCancelToken {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     #[derive(Debug, Default)]
     pub struct MockCancelToken {
         cancelled: Mutex<bool>,
+        // 延迟触发：当 call_count >= auto_cancel_after 时自动取消
+        auto_cancel_after: AtomicUsize,
+        call_count: AtomicUsize,
     }
 
     impl MockCancelToken {
         pub fn set_cancelled(&self, cancelled: bool) {
             *self.cancelled.lock().unwrap() = cancelled;
+        }
+
+        /// 设置在 `is_cancelled` 被调用 `calls` 次后自动变为取消状态
+        pub fn cancel_after(&self, calls: usize) {
+            self.auto_cancel_after.store(calls, Ordering::SeqCst);
         }
     }
 
@@ -42,7 +53,21 @@ pub mod tests {
         }
 
         fn is_cancelled(&self) -> bool {
-            *self.cancelled.lock().unwrap()
+            // 如果已显式设置取消，直接返回
+            if *self.cancelled.lock().unwrap() {
+                return true;
+            }
+            // 否则按计数自动触发
+            let threshold = self.auto_cancel_after.load(Ordering::SeqCst);
+            if threshold > 0 {
+                let current = self.call_count.fetch_add(1, Ordering::SeqCst) + 1;
+                if current >= threshold {
+                    // 触发取消
+                    *self.cancelled.lock().unwrap() = true;
+                    return true;
+                }
+            }
+            false
         }
     }
 

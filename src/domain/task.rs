@@ -4,11 +4,24 @@ use crate::{
 };
 use anyhow::Result;
 use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum TaskError {
+    #[error("Task cancelled by user")]
+    Cancelled,
+    #[error(transparent)]
+    Failed(#[from] anyhow::Error),
+}
 
 pub trait Task: Send + Sync {
     fn id(&self) -> usize;
     fn name(&self) -> Option<&str>;
-    fn run(&self, event_bus: &Arc<dyn EventBus>, cancel_token: &dyn CancelToken) -> Result<()>;
+    fn run(
+        &self,
+        event_bus: &Arc<dyn EventBus>,
+        cancel_token: &dyn CancelToken,
+    ) -> Result<(), TaskError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -146,12 +159,12 @@ pub mod tests {
     };
     use anyhow::anyhow;
     use insta::assert_debug_snapshot;
-    use std::{fmt, sync::Mutex};
+    use std::{assert_matches, fmt, sync::Mutex};
 
     pub struct MockTask {
         id: usize,
         name: Option<String>,
-        run_result: Arc<Mutex<Result<()>>>,
+        run_result: Arc<Mutex<Option<Result<(), TaskError>>>>,
         run_called: Arc<Mutex<bool>>,
         #[allow(clippy::type_complexity)]
         on_run: Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
@@ -162,7 +175,7 @@ pub mod tests {
             Self {
                 id: 0,
                 name: None,
-                run_result: Arc::new(Mutex::new(Ok(()))),
+                run_result: Arc::new(Mutex::new(Some(Ok(())))),
                 run_called: Arc::new(Mutex::new(false)),
                 on_run: Arc::new(Mutex::new(None)),
             }
@@ -198,18 +211,20 @@ pub mod tests {
             Self {
                 id,
                 name: name.map(str::to_string),
-                run_result: Arc::new(Mutex::new(Ok(()))),
+                run_result: Arc::new(Mutex::new(Some(Ok(())))),
                 run_called: Arc::new(Mutex::new(false)),
                 on_run: Arc::new(Mutex::new(None)),
             }
         }
 
-        // 设置 run 返回失败，传入错误文本
         pub fn set_fail(&self, err_msg: &'static str) {
-            *self.run_result.lock().unwrap() = Err(anyhow!(err_msg));
+            *self.run_result.lock().unwrap() = Some(Err(TaskError::Failed(anyhow!(err_msg))));
         }
 
-        // 设置 run 执行时触发的回调（用于中途取消）
+        pub fn set_cancelled(&self) {
+            *self.run_result.lock().unwrap() = Some(Err(TaskError::Cancelled));
+        }
+
         pub fn set_on_run<F: Fn() + Send + Sync + 'static>(&self, f: F) {
             *self.on_run.lock().unwrap() = Some(Arc::new(f));
         }
@@ -220,7 +235,7 @@ pub mod tests {
 
         pub fn reset(&self) {
             *self.run_called.lock().unwrap() = false;
-            *self.run_result.lock().unwrap() = Ok(());
+            *self.run_result.lock().unwrap() = Some(Ok(()));
             *self.on_run.lock().unwrap() = None;
         }
     }
@@ -238,22 +253,16 @@ pub mod tests {
             &self,
             _event_bus: &Arc<dyn EventBus>,
             _cancel_token: &dyn CancelToken,
-        ) -> Result<()> {
-            // 标记已执行
+        ) -> Result<(), TaskError> {
             *self.run_called.lock().unwrap() = true;
 
-            // 执行自定义副作用（如触发取消）
             let on_run = self.on_run.lock().unwrap();
             if let Some(callback) = &*on_run {
                 callback();
             }
 
-            // 返回预设结果
-            let res_guard = self.run_result.lock().unwrap();
-            match &*res_guard {
-                Ok(()) => Ok(()),
-                Err(e) => Err(anyhow!(e.to_string())),
-            }
+            let mut res_guard = self.run_result.lock().unwrap();
+            res_guard.take().unwrap_or(Ok(()))
         }
     }
 
@@ -423,6 +432,16 @@ pub mod tests {
             assert!(!*task.run_called.lock().unwrap());
             task.run(&event_bus, &cancel_token).unwrap();
             assert!(*task.run_called.lock().unwrap());
+        }
+
+        #[test]
+        fn run_returns_cancelled_when_set() {
+            let task = MockTask::new(1, Some("cancel_me"));
+            task.set_cancelled();
+            let bus: Arc<dyn EventBus> = Arc::new(MockEventBus::default());
+            let token = MockCancelToken::default();
+            let result = task.run(&bus, &token);
+            assert_matches!(result, Err(TaskError::Cancelled));
         }
     }
 }
