@@ -10,7 +10,6 @@ use std::collections::HashMap;
 #[derive(Debug, Default, Clone)]
 pub struct TaskStateStore {
     tasks: HashMap<usize, TaskMetadata>,
-    total: usize,
     final_stats: Option<Stats>,
 }
 
@@ -19,17 +18,13 @@ impl TaskStateStore {
         Self {
             tasks: HashMap::new(),
             final_stats: None,
-            total: 0,
         }
     }
 
     /// 接收事件，更新内部任务状态
     pub fn handle_event(&mut self, event: &Event) {
         match event {
-            Event::TaskQueueStart { total } => {
-                self.total = *total;
-            }
-
+            // Event::TaskQueueStart { .. } => {}
             Event::TaskStarted { metadata } => {
                 self.tasks.insert(metadata.id(), metadata.clone());
             }
@@ -75,7 +70,7 @@ impl TaskStateStore {
                 self.final_stats = Some(Stats::new(*total, 0, 0, *success, *failed, *cancelled));
             }
 
-            Event::Shutdown => {}
+            Event::Shutdown | Event::TaskQueueStart { .. } => {}
         }
     }
 
@@ -96,8 +91,8 @@ impl TaskStateStore {
                 Status::Cancelled => cancelled += 1,
             }
         }
-
-        Stats::new(self.total, pending, running, completed, failed, cancelled)
+        let total = self.tasks.len();
+        Stats::new(total, pending, running, completed, failed, cancelled)
     }
 
     /// 获取最终统计数据，优先使用外部聚合数据
@@ -135,7 +130,6 @@ impl TaskStateStore {
     /// 清空所有状态，支持复用
     pub fn clear(&mut self) {
         self.tasks.clear();
-        self.total = 0;
         self.final_stats = None;
     }
 }
@@ -154,10 +148,23 @@ mod tests {
     }
 
     #[test]
-    fn task_queue_start_sets_total() {
+    fn task_queue_start_does_not_set_total_anymore() {
         let mut store = TaskStateStore::new();
         store.handle_event(&Event::TaskQueueStart { total: 10 });
-        assert_eq!(store.calculate_overall_stats().total(), 10);
+        assert_eq!(store.calculate_overall_stats().total(), 0);
+    }
+
+    #[test]
+    fn total_reflects_actual_registered_tasks() {
+        let mut store = TaskStateStore::new();
+        store.handle_event(&Event::TaskStarted {
+            metadata: sample_test_metadata_with_id_name(1, "a"),
+        });
+        store.handle_event(&Event::TaskStarted {
+            metadata: sample_test_metadata_with_id_name(2, "b"),
+        });
+        let stats = store.calculate_overall_stats();
+        assert_eq!(stats.total(), 2);
     }
 
     #[test]

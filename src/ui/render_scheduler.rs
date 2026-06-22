@@ -100,7 +100,7 @@ impl Default for RenderScheduler {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ui::MockRenderer;
+    use crate::{domain::TaskMetadata, ui::MockRenderer};
     use std::sync::{Arc, Mutex};
 
     /// 构造调度器并返回调用计数句柄
@@ -122,9 +122,11 @@ pub mod tests {
     #[test]
     fn push_event_marks_dirty_and_updates_state() {
         let (mut s, _, _) = sample_ui_scheduler();
-        s.push_event(&Event::TaskQueueStart { total: 10 });
+        s.push_event(&Event::TaskStarted {
+            metadata: TaskMetadata::builder().id(1).name("task1").build(),
+        });
         assert!(s.has_state_update);
-        assert_eq!(s.state_store.calculate_overall_stats().total(), 10);
+        assert_eq!(s.state_store.calculate_overall_stats().total(), 1);
     }
 
     #[test]

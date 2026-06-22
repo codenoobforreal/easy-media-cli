@@ -67,20 +67,26 @@ impl SyncUi {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::mpsc, thread};
-
     use super::*;
-    use crate::{domain::Event, infra::MockEventBus, ui::MockRenderer};
+    use crate::{
+        domain::{Event, TaskMetadata},
+        infra::MockEventBus,
+        ui::MockRenderer,
+    };
     use insta::assert_debug_snapshot;
+    use std::{sync::mpsc, thread};
 
     #[test]
     fn bind_event_bus_forwards_events_to_inner() {
         let bus = MockEventBus::default();
         let renderer = Box::new(MockRenderer::default());
         let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
-        bus.publish(Event::TaskQueueStart { total: 10 }).unwrap();
+        bus.publish(Event::TaskStarted {
+            metadata: TaskMetadata::builder().id(1).name("task1").build(),
+        })
+        .unwrap();
         let inner = ui.lock().unwrap();
-        assert_eq!(inner.state_store().calculate_overall_stats().total(), 10);
+        assert_eq!(inner.state_store().calculate_overall_stats().total(), 1);
     }
 
     #[test]
@@ -89,7 +95,10 @@ mod tests {
         let renderer = Box::new(MockRenderer::default());
         let ui1 = SyncUi::bind_event_bus(renderer, &bus).unwrap();
         let ui2 = ui1.clone();
-        bus.publish(Event::TaskQueueStart { total: 42 }).unwrap();
+        bus.publish(Event::TaskStarted {
+            metadata: TaskMetadata::builder().id(42).name("task42").build(),
+        })
+        .unwrap();
         let t1 = ui1
             .lock()
             .unwrap()
@@ -103,7 +112,7 @@ mod tests {
             .calculate_overall_stats()
             .total();
         assert_eq!(t1, t2);
-        assert_eq!(t1, 42);
+        assert_eq!(t1, 1); // 只有 1 个任务启动
     }
 
     #[test]
@@ -113,10 +122,12 @@ mod tests {
         let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
         {
             let mut guard = ui.lock().unwrap();
-            guard.push_event(&Event::TaskQueueStart { total: 5 });
+            guard.push_event(&Event::TaskStarted {
+                metadata: TaskMetadata::builder().id(1).name("task1").build(),
+            });
         }
         let guard = ui.lock().unwrap();
-        assert_eq!(guard.state_store().calculate_overall_stats().total(), 5);
+        assert_eq!(guard.state_store().calculate_overall_stats().total(), 1);
     }
 
     #[test]
@@ -143,7 +154,10 @@ mod tests {
         let running_calls = Arc::clone(&renderer.running_calls);
         let renderer = Box::new(renderer);
         let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
-        bus.publish(Event::TaskQueueStart { total: 10 }).unwrap();
+        bus.publish(Event::TaskStarted {
+            metadata: TaskMetadata::builder().id(1).name("task1").build(),
+        })
+        .unwrap();
         {
             let mut scheduler = ui.lock().unwrap();
             scheduler.skip_render_interval();
