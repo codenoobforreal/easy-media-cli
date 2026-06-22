@@ -2,6 +2,7 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Stats {
+    expected_total: usize,
     total: usize,
     pending: usize,
     running: usize,
@@ -20,6 +21,27 @@ impl Stats {
         canceled: usize,
     ) -> Self {
         Self {
+            expected_total: 0,
+            total,
+            pending,
+            running,
+            completed,
+            failed,
+            canceled,
+        }
+    }
+
+    pub fn with_expected(
+        expected_total: usize,
+        total: usize,
+        pending: usize,
+        running: usize,
+        completed: usize,
+        failed: usize,
+        canceled: usize,
+    ) -> Self {
+        Self {
+            expected_total,
             total,
             pending,
             running,
@@ -52,6 +74,10 @@ impl Stats {
     pub fn canceled(&self) -> usize {
         self.canceled
     }
+
+    pub fn expected_total(&self) -> usize {
+        self.expected_total
+    }
 }
 
 #[cfg(test)]
@@ -68,6 +94,7 @@ pub mod tests {
         let stats = Stats::default();
         assert_debug_snapshot!(stats,@"
         Stats {
+            expected_total: 0,
             total: 0,
             pending: 0,
             running: 0,
@@ -83,6 +110,7 @@ pub mod tests {
         let stats = Stats::new(10, 2, 3, 4, 1, 0);
         assert_debug_snapshot!(stats,@"
         Stats {
+            expected_total: 0,
             total: 10,
             pending: 2,
             running: 3,

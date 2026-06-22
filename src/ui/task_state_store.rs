@@ -10,6 +10,7 @@ use std::collections::HashMap;
 #[derive(Debug, Default, Clone)]
 pub struct TaskStateStore {
     tasks: HashMap<usize, TaskMetadata>,
+    expected_total: Option<usize>,
     final_stats: Option<Stats>,
 }
 
@@ -17,6 +18,7 @@ impl TaskStateStore {
     pub fn new() -> Self {
         Self {
             tasks: HashMap::new(),
+            expected_total: None,
             final_stats: None,
         }
     }
@@ -24,7 +26,10 @@ impl TaskStateStore {
     /// 接收事件，更新内部任务状态
     pub fn handle_event(&mut self, event: &Event) {
         match event {
-            // Event::TaskQueueStart { .. } => {}
+            Event::TaskQueueStart { total } => {
+                self.expected_total = Some(*total);
+            }
+
             Event::TaskStarted { metadata } => {
                 self.tasks.insert(metadata.id(), metadata.clone());
             }
@@ -67,10 +72,12 @@ impl TaskStateStore {
                 failed,
                 cancelled,
             } => {
-                self.final_stats = Some(Stats::new(*total, 0, 0, *success, *failed, *cancelled));
+                self.final_stats = Some(Stats::with_expected(
+                    *total, *total, 0, 0, *success, *failed, *cancelled,
+                ));
             }
 
-            Event::Shutdown | Event::TaskQueueStart { .. } => {}
+            Event::Shutdown => {}
         }
     }
 
@@ -91,8 +98,18 @@ impl TaskStateStore {
                 Status::Cancelled => cancelled += 1,
             }
         }
+
         let total = self.tasks.len();
-        Stats::new(total, pending, running, completed, failed, cancelled)
+
+        Stats::with_expected(
+            self.expected_total.unwrap_or(0),
+            total,
+            pending,
+            running,
+            completed,
+            failed,
+            cancelled,
+        )
     }
 
     /// 获取最终统计数据，优先使用外部聚合数据
@@ -148,10 +165,12 @@ mod tests {
     }
 
     #[test]
-    fn task_queue_start_does_not_set_total_anymore() {
+    fn task_queue_start_sets_expected_total_but_not_total() {
         let mut store = TaskStateStore::new();
         store.handle_event(&Event::TaskQueueStart { total: 10 });
-        assert_eq!(store.calculate_overall_stats().total(), 0);
+        let stats = store.calculate_overall_stats();
+        assert_eq!(stats.total(), 0);
+        assert_eq!(stats.expected_total(), 10);
     }
 
     #[test]
@@ -299,6 +318,7 @@ mod tests {
         let stats = store.get_final_stats();
         assert_debug_snapshot!(stats,@"
         Stats {
+            expected_total: 10,
             total: 10,
             pending: 0,
             running: 0,
@@ -334,10 +354,10 @@ mod tests {
             id: 3,
             error: "err".into(),
         });
-
         let stats = store.calculate_overall_stats();
         assert_debug_snapshot!(stats,@"
         Stats {
+            expected_total: 4,
             total: 4,
             pending: 1,
             running: 1,
@@ -373,6 +393,7 @@ mod tests {
         let stats = store.get_final_stats();
         assert_debug_snapshot!(stats,@"
         Stats {
+            expected_total: 0,
             total: 1,
             pending: 0,
             running: 0,
@@ -399,5 +420,19 @@ mod tests {
         store.clear();
         assert!(store.tasks().is_empty());
         assert_eq!(store.calculate_overall_stats().total(), 0);
+    }
+
+    #[test]
+    fn expected_total_preserved_in_overall_stats() {
+        let mut store = TaskStateStore::new();
+        store.handle_event(&Event::TaskQueueStart { total: 5 });
+        for i in 1..=3 {
+            store.handle_event(&Event::TaskStarted {
+                metadata: sample_test_metadata_with_id_name(i, "t"),
+            });
+        }
+        let stats = store.calculate_overall_stats();
+        assert_eq!(stats.expected_total(), 5);
+        assert_eq!(stats.total(), 3);
     }
 }

@@ -66,10 +66,15 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
 
 impl<O: Write, E: Write> DefaultRenderer<O, E> {
     fn write_overall_stats(w: &mut impl Write, stats: &Stats) -> Result<()> {
+        if stats.expected_total() > 0 {
+            write!(w, "Total: {}/{} | ", stats.total(), stats.expected_total())?;
+        } else {
+            write!(w, "Total: {} | ", stats.total())?;
+        }
+
         writeln!(
             w,
-            "Total tasks: {} | Completed: {} | Failed: {} | Running: {} | Pending: {} | Canceled: {}",
-            stats.total(),
+            "Completed: {} | Failed: {} | Running: {} | Pending: {} | Canceled: {}",
             stats.completed(),
             stats.failed(),
             stats.running(),
@@ -114,10 +119,15 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
     }
 
     fn write_complete_stat(w: &mut impl Write, stats: &Stats) -> Result<()> {
+        if stats.expected_total() > 0 {
+            write!(w, "Total: {}/{} | ", stats.total(), stats.expected_total())?;
+        } else {
+            write!(w, "Total: {} | ", stats.total())?;
+        }
+
         writeln!(
             w,
-            "Total tasks: {} | Completed: {} | Failed: {} | Cancelled: {} | Not Started: {}",
-            stats.total(),
+            "Completed: {} | Failed: {} | Cancelled: {} | Not Started: {}",
             stats.completed(),
             stats.failed(),
             stats.canceled(),
@@ -297,7 +307,7 @@ pub mod tests {
         let mut buf = Vec::new();
         MemRender::write_overall_stats(&mut buf, &sample_stats()).unwrap();
         let out = String::from_utf8(buf).unwrap();
-        assert_debug_snapshot!(out,@r#""Total tasks: 0 | Completed: 0 | Failed: 0 | Running: 0 | Pending: 0 | Canceled: 0\n""#);
+        assert_debug_snapshot!(out,@r#""Total: 0 | Completed: 0 | Failed: 0 | Running: 0 | Pending: 0 | Canceled: 0\n""#);
     }
 
     #[test]
@@ -351,8 +361,8 @@ pub mod tests {
         let mut r = mem_renderer();
         r.render_running(&sample_stats(), &HashMap::new()).unwrap();
         let stdout = String::from_utf8_lossy(&r.stdout);
-        assert!(stdout.contains("Total tasks:"));
-        assert_eq!(r.last_ui_lines, 1); // 统计行占 1 行
+        assert!(stdout.contains("Total: 0"));
+        assert_eq!(r.last_ui_lines, 1);
     }
 
     #[test]
@@ -380,7 +390,7 @@ pub mod tests {
             .unwrap();
         let stdout = String::from_utf8_lossy(&r.stdout);
         let stderr = String::from_utf8_lossy(&r.stderr);
-        assert!(stdout.contains("Total tasks: 0"), "{}", stdout);
+        assert!(stdout.contains("Total: 0"), "{}", stdout);
         assert!(stdout.contains("Task results:"));
         assert!(stdout.contains("All tasks finished!"));
         assert_debug_snapshot!(stderr,@r#""List of failed tasks:\n[fail_task]:\nio error\n""#);
