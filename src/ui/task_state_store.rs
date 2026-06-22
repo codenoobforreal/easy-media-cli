@@ -36,14 +36,13 @@ impl TaskStateStore {
 
             Event::TaskProgress { id, progress } => {
                 if let Some(task) = self.tasks.get_mut(id) {
-                    task.set_status(Status::Running);
-                    task.set_progress(Some(*progress));
+                    task.mark_running(Some(*progress));
                 }
             }
 
             Event::TaskCompleted { id } => {
                 if let Some(task) = self.tasks.get_mut(id) {
-                    task.set_status(Status::Completed);
+                    task.mark_completed(None);
                 }
             }
 
@@ -55,14 +54,13 @@ impl TaskStateStore {
 
             Event::TaskFailed { id, error } => {
                 if let Some(task) = self.tasks.get_mut(id) {
-                    task.set_status(Status::Failed);
-                    task.set_error(Some(error.clone()));
+                    task.mark_failed(error.clone());
                 }
             }
 
             Event::TaskCancelled { id } => {
                 if let Some(task) = self.tasks.get_mut(id) {
-                    task.set_status(Status::Cancelled);
+                    task.mark_cancelled();
                 }
             }
 
@@ -273,6 +271,7 @@ mod tests {
         store.handle_event(&Event::TaskStarted {
             metadata: sample_test_metadata_with_id_name(1, "t1"),
         });
+        store.handle_event(&Event::TaskCompleted { id: 1 });
         store.handle_event(&Event::TaskResult {
             id: 1,
             summary: "output.mp4".into(),

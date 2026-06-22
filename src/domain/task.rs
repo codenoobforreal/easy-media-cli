@@ -81,20 +81,50 @@ impl TaskMetadata {
     //     self.name = name.into();
     // }
 
-    pub fn set_status(&mut self, status: Status) {
-        self.status = status;
+    /// 标记任务开始执行，更新进度
+    pub fn mark_running(&mut self, progress: Option<Progress>) {
+        self.status = Status::Running;
+        self.progress = progress;
+        self.error = None;
+        self.result = None;
     }
 
+    /// 标记任务成功完成，可附带结果
+    pub fn mark_completed(&mut self, result: Option<String>) {
+        self.status = Status::Completed;
+        self.result = result;
+        self.error = None;
+    }
+
+    /// 标记任务失败，记录错误信息
+    pub fn mark_failed(&mut self, error: String) {
+        self.status = Status::Failed;
+        self.error = Some(error);
+        self.result = None;
+    }
+
+    /// 标记任务被取消
+    pub fn mark_cancelled(&mut self) {
+        self.status = Status::Cancelled;
+        self.error = None;
+        self.result = None;
+    }
+
+    /// 用于非状态转换场景
     pub fn set_progress(&mut self, progress: Option<Progress>) {
         self.progress = progress;
     }
 
-    pub fn set_error(&mut self, err: Option<impl Into<String>>) {
-        self.error = err.map(Into::into);
+    pub fn set_result(&mut self, result: Option<String>) {
+        debug_assert!(
+            self.status == Status::Completed,
+            "set_result should only be called when status is Completed"
+        );
+        self.result = result;
     }
 
-    pub fn set_result(&mut self, result: Option<impl Into<String>>) {
-        self.result = result.map(Into::into);
+    pub fn set_error(&mut self, err: Option<impl Into<String>>) {
+        self.error = err.map(Into::into);
     }
 }
 
@@ -277,12 +307,6 @@ pub mod tests {
         TaskMetadata::builder().id(id).name(name).build()
     }
 
-    pub fn sample_test_metadata_with_all(id: usize, name: &str, status: Status) -> TaskMetadata {
-        let mut meta = TaskMetadata::builder().id(id).name(name).build();
-        meta.set_status(status);
-        meta
-    }
-
     mod status {
         use super::*;
 
@@ -305,9 +329,9 @@ pub mod tests {
         fn set_status_updates_field() {
             let mut meta = TaskMetadata::default();
             assert_eq!(meta.status(), Status::Pending);
-            meta.set_status(Status::Running);
+            meta.mark_running(None);
             assert_eq!(meta.status(), Status::Running);
-            meta.set_status(Status::Cancelled);
+            meta.mark_cancelled();
             assert_eq!(meta.status(), Status::Cancelled);
         }
     }
@@ -395,9 +419,10 @@ pub mod tests {
         #[test]
         fn set_result_handles_option_correctly() {
             let mut meta = TaskMetadata::default();
+            meta.mark_completed(None);
             assert!(meta.result().is_none());
-            meta.set_result(Some("output.mp4"));
-            assert_debug_snapshot!(meta.result(),@r#"
+            meta.set_result(Some("output.mp4".to_owned()));
+            assert_debug_snapshot!(meta.result(), @r#"
             Some(
                 "output.mp4",
             )
@@ -411,6 +436,27 @@ pub mod tests {
             let original = TaskMetadata::builder().id(7).name("clone_test").build();
             let cloned = original.clone();
             assert_eq!(original, cloned);
+        }
+
+        #[test]
+        fn mark_running_updates_status_and_clears_error() {
+            let mut meta = TaskMetadata::default();
+            meta.set_error(Some("previous error"));
+            meta.mark_running(Some(sample_progress()));
+            assert_eq!(meta.status(), Status::Running);
+            assert!(meta.error().is_none());
+            assert!(meta.result().is_none());
+            assert!(meta.progress().is_some());
+        }
+
+        #[test]
+        fn mark_completed_clears_error_and_sets_result() {
+            let mut meta = TaskMetadata::default();
+            meta.set_error(Some("err"));
+            meta.mark_completed(Some("output.mp4".into()));
+            assert_eq!(meta.status(), Status::Completed);
+            assert!(meta.error().is_none());
+            assert_eq!(meta.result(), Some("output.mp4".into()));
         }
     }
 

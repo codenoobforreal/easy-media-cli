@@ -235,7 +235,7 @@ impl<O: Write, E: Write> Drop for DefaultRenderer<O, E> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::{domain::sample_test_metadata_with_all, ui::sample_stats};
+    use crate::{domain::sample_test_metadata_with_id_name, ui::sample_stats};
     use insta::assert_debug_snapshot;
     use std::sync::{Arc, Mutex};
 
@@ -306,9 +306,10 @@ pub mod tests {
 
     #[test]
     fn write_failed_tasks_only_lists_failed() {
-        let mut failed_meta = sample_test_metadata_with_all(1, "bad_task", Status::Failed);
-        failed_meta.set_error(Some("parse error"));
-        let good_meta = sample_test_metadata_with_all(2, "good_task", Status::Completed);
+        let mut failed_meta = sample_test_metadata_with_id_name(1, "bad_task");
+        failed_meta.mark_failed("parse error".to_owned());
+        let mut good_meta = sample_test_metadata_with_id_name(2, "good_task");
+        good_meta.mark_completed(None);
         let tasks = vec![(1, &failed_meta), (2, &good_meta)];
         let mut buf = Vec::new();
         MemRender::write_failed_tasks(&mut buf, &tasks).unwrap();
@@ -325,9 +326,10 @@ pub mod tests {
 
     #[test]
     fn write_task_results_only_lists_with_result() {
-        let mut with_result = sample_test_metadata_with_all(1, "task1", Status::Completed);
-        with_result.set_result(Some("output.mp4"));
-        let complete = sample_test_metadata_with_all(2, "task2", Status::Completed);
+        let mut with_result = sample_test_metadata_with_id_name(1, "task1");
+        with_result.mark_completed(Some("output.mp4".to_owned()));
+        let mut complete = sample_test_metadata_with_id_name(2, "task2");
+        complete.mark_completed(None);
         let tasks = vec![(1, &with_result), (2, &complete)];
         let mut buf = Vec::new();
         MemRender::write_task_results(&mut buf, &tasks).unwrap();
@@ -357,10 +359,10 @@ pub mod tests {
     #[test]
     fn render_final_outputs_all_sections() {
         let mut r = mem_renderer();
-        let mut failed = sample_test_metadata_with_all(1, "fail_task", Status::Failed);
-        failed.set_error(Some("io error"));
-        let mut success = sample_test_metadata_with_all(2, "ok_task", Status::Completed);
-        success.set_result(Some("done.mp4"));
+        let mut failed = sample_test_metadata_with_id_name(1, "fail_task");
+        failed.mark_failed("io error".to_owned());
+        let mut success = sample_test_metadata_with_id_name(2, "ok_task");
+        success.mark_completed(Some("done.mp4".to_owned()));
         let tasks = vec![(1, &failed), (2, &success)];
         r.render_final(&sample_stats(), &tasks, "All tasks finished!")
             .unwrap();
