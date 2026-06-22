@@ -25,7 +25,7 @@ use std::{
 /// - 未来有多场景复用的需要，可以在 `task/ffmpeg/mod.rs` 内部定义为 `pub(crate) struct IoThreadHandles`，仅整个 `ffmpeg` 任务子模块内部共享
 struct IoThreadHandles {
     stdout: thread::JoinHandle<Result<()>>,
-    stderr: thread::JoinHandle<Result<()>>,
+    stderr: thread::JoinHandle<Result<Vec<u8>>>,
 }
 
 /// `FFmpeg` 任务包装器
@@ -226,13 +226,23 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
 
         let mut errors = Vec::new();
         errors.extend(stdout_res.err());
-        errors.extend(stderr_res.err());
+        let stderr_bytes = match stderr_res {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                errors.push(e);
+                Vec::new()
+            }
+        };
 
         if !exit_status.success() {
-            let exit_err = match exit_status.code() {
+            let mut exit_err = match exit_status.code() {
                 Some(code) => anyhow!("FFmpeg exited with non-zero exit code: {code}"),
                 None => anyhow!("FFmpeg process terminated by signal/crash, no exit code"),
             };
+            if !stderr_bytes.is_empty() {
+                let stderr_text = String::from_utf8_lossy(&stderr_bytes);
+                exit_err = exit_err.context(format!("stderr:\n{stderr_text}"));
+            }
             errors.push(exit_err);
         }
 
@@ -262,18 +272,14 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         Ok(())
     }
 
-    /// 读取 `stderr`，有错误输出则返回失败
-    fn read_stderr(stderr_reader: impl Read) -> Result<()> {
-        let mut error_buf = String::new();
-        if BufReader::new(stderr_reader)
-            .read_to_string(&mut error_buf)
-            .with_context(|| "Failed to read stderr output")?
-            > 0
-        {
-            bail!("FFmpeg error: {error_buf}");
-        }
+    /// 收集 `stderr` 原始字节，不进行编码转换或内容判定
+    fn read_stderr(stderr_reader: impl Read) -> Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        BufReader::new(stderr_reader)
+            .read_to_end(&mut buf)
+            .with_context(|| "Failed to read stderr")?;
 
-        Ok(())
+        Ok(buf)
     }
 }
 
@@ -468,14 +474,36 @@ mod tests {
         }
 
         #[test]
-        fn stderr_content_propagates_as_error() {
+        fn stderr_content_appended_on_exit_failure() {
             let suite = StreamingTestSuite::new();
             suite.fetcher.set_ok(MediaMetadata::default());
             suite
                 .runner
-                .set_spawn_ok(vec![], b"Invalid argument".to_vec(), exit_status(true));
+                .set_spawn_ok(vec![], b"Invalid argument".to_vec(), exit_status(false));
             let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
-            assert_debug_snapshot!(err,@r#""Task 1 failed with 1 errors\n- \"FFmpeg error: Invalid argument\"""#);
+            assert_debug_snapshot!(err, @r#""Task 1 failed with 1 errors\n- Error {\n    context: \"stderr:\\nInvalid argument\",\n    source: \"FFmpeg exited with non-zero exit code: 1\",\n}""#);
+        }
+
+        #[test]
+        fn failure_without_stderr() {
+            let suite = StreamingTestSuite::new();
+            suite.fetcher.set_ok(MediaMetadata::default());
+            suite
+                .runner
+                .set_spawn_ok(vec![], vec![], exit_status(false));
+            let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
+            assert_debug_snapshot!(err, @r#""Task 1 failed with 1 errors\n- \"FFmpeg exited with non-zero exit code: 1\"""#);
+        }
+
+        #[test]
+        fn success_ignores_stderr() {
+            let suite = StreamingTestSuite::new();
+            suite.fetcher.set_ok(MediaMetadata::default());
+            suite
+                .runner
+                .set_spawn_ok(vec![], b"just a log".to_vec(), exit_status(true));
+            let result = suite.wrapper.run(&suite.bus, &suite.cancel);
+            assert!(result.is_ok());
         }
 
         #[test]
