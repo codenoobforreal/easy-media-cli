@@ -153,7 +153,9 @@ impl TaskStateStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{domain::sample_test_metadata_with_id_name, ffmpeg_progress::sample_progress};
+    use crate::{
+        domain::test_utils::sample_test_metadata_with_id_name, infra::test_utils::sample_progress,
+    };
     use insta::assert_debug_snapshot;
 
     #[test]

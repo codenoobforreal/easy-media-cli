@@ -84,36 +84,29 @@ mod tests {
 
     #[test]
     fn test_percentage_calculation() {
-        // 总时长为 0 返回 100%
         let rp = RawFfmpegProgress::new(0.0, 0);
         assert_debug_snapshot!(rp.percentage(Duration::ZERO), @"100.0");
 
-        // 已处理时长为 0，总时长非零，返回 0%
         let rp = RawFfmpegProgress::new(0.0, 0);
         let total = Duration::from_secs(10);
         assert_debug_snapshot!(rp.percentage(total), @"0.0");
 
-        // 正常 50%
         let rp = RawFfmpegProgress::new(0.0, 5_000_000);
         assert_debug_snapshot!(rp.percentage(total), @"50.0");
 
-        // 超出总时长，截断为 100%
         let rp = RawFfmpegProgress::new(0.0, 15_000_000);
         assert_debug_snapshot!(rp.percentage(total), @"100.0");
     }
 
     #[test]
     fn test_average_speed() {
-        // 运行时长为 0 返回 0
         let rp = RawFfmpegProgress::new(0.0, 1_000_000);
         assert_debug_snapshot!(rp.average_speed(Duration::ZERO), @"0.0");
 
-        // 已处理时长为 0，运行时长非零，返回 0
         let rp = RawFfmpegProgress::new(0.0, 0);
         let elapsed = Duration::from_secs(1);
         assert_debug_snapshot!(rp.average_speed(elapsed), @"0.0");
 
-        // 正常计算
         let rp = RawFfmpegProgress::new(0.0, 2_000_000);
         let elapsed = Duration::from_secs(1);
         assert_debug_snapshot!(rp.average_speed(elapsed), @"2.0");
@@ -127,7 +120,6 @@ mod tests {
         let total = Duration::from_secs(10);
         let elapsed = Duration::from_secs(2);
 
-        // 进度 100%，ETA 为 0
         let rp = RawFfmpegProgress::new(10.0, 10_000_000);
         assert_debug_snapshot!(rp.eta(total, elapsed), @"
           Some(
@@ -135,19 +127,15 @@ mod tests {
           )
           ");
 
-        // speed 为 0，返回 None
         let rp = RawFfmpegProgress::new(0.0, 5_000_000);
         assert_eq!(rp.eta(total, elapsed), None);
 
-        // speed 为负，返回 None
         let rp = RawFfmpegProgress::new(-1.0, 5_000_000);
         assert_eq!(rp.eta(total, elapsed), None);
 
-        // 运行时长为 0，返回 None
         let rp = RawFfmpegProgress::new(10.0, 5_000_000);
         assert_eq!(rp.eta(total, Duration::ZERO), None);
 
-        // 正常计算 ETA
         let rp = RawFfmpegProgress::new(10.0, 5_000_000);
         assert_debug_snapshot!(rp.eta(total, elapsed), @"
           Some(
@@ -155,7 +143,6 @@ mod tests {
           )
           ");
 
-        // 已处理时长为 0，平均速度为 0，则 eta 为 None
         let rp = RawFfmpegProgress::new(2.0, 0);
         let eta = rp.eta(total, Duration::from_secs(1));
         assert_eq!(eta, None);

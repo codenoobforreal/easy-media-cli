@@ -1,4 +1,4 @@
-use crate::{domain::TaskMetadata, ffmpeg_progress::Progress};
+use crate::{domain::TaskMetadata, infra::Progress};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -48,7 +48,7 @@ pub enum Event {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::{domain::sample_test_metadata, ffmpeg_progress::sample_progress};
+    use crate::{domain::test_utils::sample_test_metadata, infra::test_utils::sample_progress};
     use insta::assert_debug_snapshot;
 
     #[test]

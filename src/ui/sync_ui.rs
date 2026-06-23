@@ -70,8 +70,8 @@ mod tests {
     use super::*;
     use crate::{
         domain::{Event, TaskMetadata},
-        infra::MockEventBus,
-        ui::MockRenderer,
+        infra::test_utils::MockEventBus,
+        ui::test_utils::MockRenderer,
     };
     use insta::assert_debug_snapshot;
     use std::{sync::mpsc, thread};

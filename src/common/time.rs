@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 /// 将一个 Duration 转换为 `HH:MM:SS` 格式的字符串
+#[allow(dead_code)]
 pub fn format_duration(d: Duration) -> String {
     let total_secs = d.as_secs();
     let hours = total_secs / 3600;

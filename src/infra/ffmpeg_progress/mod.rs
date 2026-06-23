@@ -7,7 +7,12 @@ mod tracker;
 
 pub use parser::FfmpegProgressParser;
 pub use progress::Progress;
-#[cfg(test)]
-pub use progress::tests::{make_progress, sample_progress};
-use raw_progress::RawFfmpegProgress;
+pub use raw_progress::RawFfmpegProgress;
 pub use tracker::ProgressTracker;
+
+#[cfg(test)]
+pub mod test_utils {
+    use super::*;
+
+    pub use progress::test_utils::{make_progress, sample_progress};
+}

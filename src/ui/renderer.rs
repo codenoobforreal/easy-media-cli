@@ -8,10 +8,7 @@ use crossterm::{
     cursor::{Hide, MoveUp, Show},
     terminal::{Clear, ClearType},
 };
-use std::{
-    collections::HashMap,
-    io::{Stderr, Stdout, Write, stderr, stdout},
-};
+use std::io::{Stderr, Stdout, Write, stderr, stdout};
 
 const FAILED_LIST_TITLE: &str = "List of failed tasks:";
 const RESULT_LIST_TITLE: &str = "Task results:";
@@ -233,13 +230,9 @@ impl<O: Write, E: Write> Drop for DefaultRenderer<O, E> {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use crate::{domain::sample_test_metadata_with_id_name, ui::sample_stats};
-    use insta::assert_debug_snapshot;
     use std::sync::{Arc, Mutex};
-
-    type MemRender = DefaultRenderer<Vec<u8>, Vec<u8>>;
 
     #[derive(Debug, Default)]
     pub struct MockRenderer {
@@ -269,6 +262,17 @@ pub mod tests {
             Ok(())
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        domain::test_utils::sample_test_metadata_with_id_name, ui::test_utils::sample_stats,
+    };
+    use insta::assert_debug_snapshot;
+
+    type MemRender = DefaultRenderer<Vec<u8>, Vec<u8>>;
 
     fn mem_renderer() -> MemRender {
         DefaultRenderer::<Vec<u8>, Vec<u8>>::new(vec![], vec![])

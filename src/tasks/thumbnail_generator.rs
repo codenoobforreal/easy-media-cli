@@ -34,7 +34,7 @@ impl ThumbnailGenerator {
     }
 
     /// 构建缩略图输出路径
-    /// - 若指定输出目录：在该目录下直接生成 `文件名-%04d.jpg` 格式的文件
+    /// - 若指定输出目录：在该目录下直接生成 `文件名-%04d.jpg` 文件名的文件
     /// - 若未指定输出目录：在输入文件同级目录下，创建与文件同名的子目录存放缩略图
     pub fn build_output_path(input: &Path, output_dir: Option<&Path>) -> Result<PathBuf> {
         let file_stem = input

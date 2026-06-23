@@ -1,6 +1,6 @@
 //! 进度条渲染工具
 
-use crate::ffmpeg_progress::Progress;
+use crate::infra::Progress;
 use anyhow::Result;
 use std::{io::Write, time::Duration};
 
@@ -58,7 +58,7 @@ pub fn render_progress_bar<W: Write>(writer: &mut W, progress: Option<&Progress>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffmpeg_progress::make_progress;
+    use crate::infra::test_utils::make_progress;
     use insta::assert_debug_snapshot;
     use std::{io, time::Duration};
 
@@ -69,8 +69,6 @@ mod tests {
         render_progress_bar(&mut buf, Some(&prog)).unwrap();
         let out = String::from_utf8(buf).unwrap();
         assert_debug_snapshot!(out,@r#""[                              ] 0.0%\nTime used: 00:00:00 | ETA: 00:01:40\n""#);
-        // assert!(out.contains("[                              ] 0.0%"));
-        // assert!(out.contains("Time used: 00:00:00 | ETA: 00:01:40"));
     }
 
     #[test]
@@ -79,9 +77,7 @@ mod tests {
         let prog = make_progress(50.0, Duration::from_secs(30), Some(Duration::from_secs(30)));
         render_progress_bar(&mut buf, Some(&prog)).unwrap();
         let out = String::from_utf8(buf).unwrap();
-        // 30 格总长度，50% 对应 15 个等号
         assert_debug_snapshot!(out,@r#""[===============               ] 50.0%\nTime used: 00:00:30 | ETA: 00:00:30\n""#);
-        // assert!(out.contains("[===============               ] 50.0%"));
     }
 
     #[test]
@@ -91,7 +87,6 @@ mod tests {
         render_progress_bar(&mut buf, Some(&prog)).unwrap();
         let out = String::from_utf8(buf).unwrap();
         assert_debug_snapshot!(out,@r#""[==============================] 100.0%\nTime used: 00:01:00 | ETA: 00:00:00\n""#);
-        // assert!(out.contains("[==============================] 100.0%"));
     }
 
     #[test]
@@ -100,9 +95,7 @@ mod tests {
         let prog = make_progress(150.0, Duration::from_mins(1), None);
         render_progress_bar(&mut buf, Some(&prog)).unwrap();
         let out = String::from_utf8(buf).unwrap();
-        // 进度条被 clamp 到 30 格满，百分比仍显示原始值
         assert_debug_snapshot!(out,@r#""[==============================] 150.0%\nTime used: 00:01:00 | ETA: --:--:--\n""#);
-        // assert!(out.contains("[==============================] 150.0%"));
     }
 
     #[test]
@@ -111,8 +104,6 @@ mod tests {
         render_progress_bar(&mut buf, None).unwrap();
         let out = String::from_utf8(buf).unwrap();
         assert_debug_snapshot!(out,@r#""[                              ] No progress data\nTime used: --:--:-- | ETA: --:--:--\n""#);
-        // assert!(out.contains("[                              ] No progress data"));
-        // assert!(out.contains("Time used: --:--:-- | ETA: --:--:--"));
     }
 
     #[test]
@@ -122,7 +113,6 @@ mod tests {
         render_progress_bar(&mut buf, Some(&prog)).unwrap();
         let out = String::from_utf8(buf).unwrap();
         assert_debug_snapshot!(out,@r#""[======                        ] 20.0%\nTime used: 00:00:10 | ETA: --:--:--\n""#);
-        // assert!(out.contains("ETA: --:--:--"));
     }
 
     #[test]

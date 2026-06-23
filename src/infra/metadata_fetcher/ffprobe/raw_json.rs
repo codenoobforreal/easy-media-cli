@@ -1,5 +1,3 @@
-//! 原始 JSON 反序列化结构
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -11,7 +9,6 @@ pub struct FfprobeRawJson {
     pub format: Format,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Stream {
     /// 媒体文件内的流索引号，从0开始计数
@@ -139,7 +136,6 @@ pub struct Stream {
 /// 流属性标记集合
 ///
 /// 结构体全局固定：所有文件、所有流的键名完全一致，值为0/1布尔整型
-#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default, Serialize)]
 pub struct FfprobeDisposition {
     #[serde(default)]
@@ -182,7 +178,6 @@ pub struct FfprobeDisposition {
     pub multilayer: u8,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default, Serialize)]
 pub struct Format {
     /// 媒体文件完整路径与文件名
@@ -229,7 +224,7 @@ pub struct Format {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
 
     pub fn sample_ffprobe_format() -> Format {

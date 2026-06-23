@@ -73,11 +73,10 @@ fn traverse_videos(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infra::MockFileSystem;
+    use crate::infra::test_utils::MockFileSystem;
     use insta::assert_debug_snapshot;
     use std::io::ErrorKind;
 
-    /// 验证错误传播链，路径不存在时正确返回 IO 错误
     #[test]
     fn collect_videos_propagates_io_error_for_nonexistent_path() {
         let fs = MockFileSystem::default();
@@ -96,7 +95,6 @@ mod tests {
             "#);
     }
 
-    /// 直接传入视频文件路径，返回单元素列表
     #[test]
     fn collect_videos_returns_single_file_when_input_is_video() {
         let fs = MockFileSystem::default();
@@ -105,7 +103,6 @@ mod tests {
         assert_eq!(result, vec![PathBuf::from("video.mp4")]);
     }
 
-    /// 非视频文件被过滤，返回空列表
     #[test]
     fn collect_videos_returns_empty_for_non_video_file() {
         let fs = MockFileSystem::default();
@@ -114,7 +111,6 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    /// `max_depth=Some(0)` 仅遍历当前目录，不进入子目录
     #[test]
     fn collect_videos_respects_max_depth_zero_boundary() {
         let fs = MockFileSystem::default();
@@ -135,7 +131,6 @@ mod tests {
         assert_eq!(result[0], PathBuf::from("video1.mp4"));
     }
 
-    /// 有限深度下，子目录文件在深度范围内被正确收集
     #[test]
     fn collect_videos_recurses_correctly_within_max_depth() {
         let fs = MockFileSystem::default();
@@ -166,7 +161,6 @@ mod tests {
         assert_eq!(depth2.len(), 3);
     }
 
-    /// `max_depth=None` 不限制递归深度，遍历所有层级
     #[test]
     fn collect_videos_unlimited_depth_when_none() {
         let fs = MockFileSystem::default();
@@ -206,7 +200,6 @@ mod tests {
         assert_eq!(limited.len(), 3);
     }
 
-    /// 符号链接按文件处理，不跟随链接递归
     #[test]
     fn collect_videos_handles_symlink_video_file() {
         let fs = MockFileSystem::default();
@@ -215,7 +208,6 @@ mod tests {
         assert_eq!(result, vec![PathBuf::from("link_to_video.mp4")]);
     }
 
-    /// 空目录正常返回空列表，无错误
     #[test]
     fn collect_videos_empty_directory_returns_empty() {
         let fs = MockFileSystem::default();
@@ -225,7 +217,6 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    /// 扩展名大小写不敏感，大写后缀也能正确识别
     #[test]
     fn is_video_file_case_insensitive_extension() {
         assert!(is_video_file("video.MP4"));

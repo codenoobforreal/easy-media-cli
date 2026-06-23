@@ -81,13 +81,18 @@ impl Stats {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use insta::assert_debug_snapshot;
 
     pub fn sample_stats() -> Stats {
         Stats::default()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_debug_snapshot;
 
     #[test]
     fn default_all_fields_zero() {

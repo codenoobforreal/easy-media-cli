@@ -1,8 +1,7 @@
 use crate::{
     common::format_duration,
     domain::Event,
-    infra::EventBus,
-    media_metadata::{FfprobeRawJson, convert_raw_to_metadata},
+    infra::{EventBus, FfprobeRawJson, convert_raw_to_metadata},
     task::{ExecutionMode, FfmpegTask},
 };
 use anyhow::{Result, anyhow};
@@ -94,7 +93,7 @@ impl FfmpegTask for MediaMetadataGetter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{infra::MockEventBus, media_metadata::sample_ffprobe_raw_json_bytes};
+    use crate::infra::test_utils::{MockEventBus, sample_ffprobe_raw_json_bytes};
     use insta::assert_debug_snapshot;
 
     #[test]
@@ -119,7 +118,6 @@ mod tests {
     }
 
     mod handle_captured_output {
-
         use super::*;
 
         #[test]

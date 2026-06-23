@@ -1,9 +1,5 @@
+use crate::domain::CancelToken;
 use std::sync::atomic::{AtomicBool, Ordering};
-
-pub trait CancelToken: Send + Sync {
-    fn cancel(&self);
-    fn is_cancelled(&self) -> bool;
-}
 
 #[derive(Debug, Default)]
 pub struct DefaultCancelToken {
@@ -21,55 +17,55 @@ impl CancelToken for DefaultCancelToken {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use std::sync::{
-        Mutex,
-        atomic::{AtomicUsize, Ordering},
-    };
+    use std::sync::atomic::AtomicUsize;
 
     #[derive(Debug, Default)]
     pub struct MockCancelToken {
-        cancelled: Mutex<bool>,
-        // 延迟触发：当 call_count >= auto_cancel_after 时自动取消
+        cancelled: AtomicBool,
         auto_cancel_after: AtomicUsize,
         call_count: AtomicUsize,
     }
 
     impl MockCancelToken {
         pub fn set_cancelled(&self, cancelled: bool) {
-            *self.cancelled.lock().unwrap() = cancelled;
+            self.cancelled.store(cancelled, Ordering::SeqCst);
         }
 
-        /// 设置在 `is_cancelled` 被调用 `calls` 次后自动变为取消状态
+        /// 在 is_cancelled 被调用 `calls` 次后自动取消
         pub fn cancel_after(&self, calls: usize) {
             self.auto_cancel_after.store(calls, Ordering::SeqCst);
+            self.call_count.store(0, Ordering::SeqCst);
         }
     }
 
     impl CancelToken for MockCancelToken {
         fn cancel(&self) {
-            *self.cancelled.lock().unwrap() = true;
+            self.cancelled.store(true, Ordering::SeqCst);
         }
 
         fn is_cancelled(&self) -> bool {
-            // 如果已显式设置取消，直接返回
-            if *self.cancelled.lock().unwrap() {
+            if self.cancelled.load(Ordering::SeqCst) {
                 return true;
             }
-            // 否则按计数自动触发
             let threshold = self.auto_cancel_after.load(Ordering::SeqCst);
             if threshold > 0 {
                 let current = self.call_count.fetch_add(1, Ordering::SeqCst) + 1;
                 if current >= threshold {
-                    // 触发取消
-                    *self.cancelled.lock().unwrap() = true;
+                    self.cancelled.store(true, Ordering::SeqCst);
                     return true;
                 }
             }
             false
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infra::test_utils::MockCancelToken;
 
     #[test]
     fn default_token_starts_not_cancelled() {

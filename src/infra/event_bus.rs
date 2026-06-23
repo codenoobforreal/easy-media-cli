@@ -62,55 +62,67 @@ impl EventBus for DefaultEventBus {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use crate::domain::sample_test_metadata;
-    use insta::assert_debug_snapshot;
-    use std::{
-        panic::{AssertUnwindSafe, catch_unwind},
-        sync::Arc,
-    };
 
     #[derive(Default)]
     pub struct MockEventBus {
-        events: Mutex<Vec<Event>>,
-        handlers: Mutex<Vec<EventHandler>>,
+        state: Mutex<EventBusState>,
+    }
+
+    #[derive(Default)]
+    struct EventBusState {
+        events: Vec<Event>,
+        handlers: Vec<EventHandler>,
     }
 
     impl MockEventBus {
         pub fn events(&self) -> Vec<Event> {
-            self.events.lock().unwrap().clone()
+            self.state.lock().unwrap().events.clone()
+        }
+
+        /// 清空已发布事件（便于测试间隔离）
+        pub fn clear(&self) {
+            self.state.lock().unwrap().events.clear();
         }
     }
 
     impl EventBus for MockEventBus {
         fn publish(&self, event: Event) -> Result<()> {
-            self.events.lock().unwrap().push(event.clone());
-            let handlers = self.handlers.lock().unwrap();
-            for handler in handlers.iter() {
-                let _ = handler(event.clone());
+            let mut s = self.state.lock().unwrap();
+            s.events.push(event.clone());
+            // 调用所有处理器，忽略单个错误（与标准行为一致）
+            for h in &s.handlers {
+                let _ = h(event.clone());
             }
-            drop(handlers);
-
             Ok(())
         }
 
         fn publish_critical(&self, event: Event) -> Result<()> {
-            self.events.lock().unwrap().push(event.clone());
-            let handlers = self.handlers.lock().unwrap();
-            for handler in handlers.iter() {
-                handler(event.clone())?;
+            let mut s = self.state.lock().unwrap();
+            s.events.push(event.clone());
+            for h in &s.handlers {
+                h(event.clone())?;
             }
-            drop(handlers);
-
             Ok(())
         }
 
         fn subscribe(&self, handler: EventHandler) -> Result<()> {
-            self.handlers.lock().unwrap().push(handler);
+            self.state.lock().unwrap().handlers.push(handler);
             Ok(())
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{domain::test_utils::sample_test_metadata, infra::test_utils::MockEventBus};
+    use insta::assert_debug_snapshot;
+    use std::{
+        panic::{AssertUnwindSafe, catch_unwind},
+        sync::Arc,
+    };
 
     #[test]
     fn publish_with_no_subscribers_returns_ok() {

@@ -1,13 +1,13 @@
 [package]
 name = "easy-media-cli"
-version = "0.1.1"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/codenoobforreal/easy-media-cli"
-description = "A lightweight FFmpeg-powered CLI for batch video processing and scene-based thumbnail generation"
+description = "A lightweight FFmpeg-powered CLI for batch video processing (scene detection thumbnails + opinionated SVT-AV1 encoding)"
 categories = ["command-line-utilities", "multimedia"]
-keywords = ["cli", "ffmpeg", "batch-processing", "video", "thumbnail", "scene-detection"]
+keywords = ["cli", "ffmpeg", "batch-processing", "video", "thumbnail", "scene-detection", "encoding", "svt-av1"]
 
 [dependencies]
 anyhow = { version = "1" }
@@ -17,6 +17,7 @@ ctrlc = { version = "3" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
+chrono = { version = "0.4" }
 
 [dev-dependencies]
 insta = { version = "1", features = ["filters"] }
@@ -41,5 +42,8 @@ debug = true
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
+match_wildcard_for_single_variants = "warn"
 must_use_candidate = "warn"
-missing_errors_doc = "warn"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"

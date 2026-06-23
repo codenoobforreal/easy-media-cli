@@ -6,10 +6,10 @@ use anyhow::Result;
 use std::{
     ffi::{OsStr, OsString},
     path::Path,
+    time::Duration,
 };
 pub use wrapper::{FfmpegTaskWrapper, read_progress_impl};
 
-/// 领域 trait
 pub trait FfmpegTask: Send + Sync {
     fn id(&self) -> usize;
     fn name(&self) -> Option<&str>;
@@ -18,7 +18,7 @@ pub trait FfmpegTask: Send + Sync {
     fn build_args(&self) -> Vec<OsString>;
     fn file_name(&self) -> Option<&OsStr>;
 
-    /// 是否需要解析进度并发布事件，默认开启，不需要进度的任务可重写返回 false
+    /// 是否需要解析进度并发布事件，默认开启
     fn needs_progress(&self) -> bool {
         true
     }
@@ -28,14 +28,19 @@ pub trait FfmpegTask: Send + Sync {
         ExecutionMode::Streaming
     }
 
-    /// 捕获模式下处理命令输出（比如解析 ffprobe JSON），默认空实现，需要解析输出的任务可重写
+    /// 捕获模式下处理命令输出（比如解析 ffprobe JSON），默认空实现
     fn handle_captured_output(&self, _stdout: &[u8], _stderr: &[u8]) -> Result<()> {
         Ok(())
     }
 
-    /// 当前任务是否需要提前创建输出目录
+    /// 当前任务是否需要提前创建输出目录，根据 output 是否有值判断
     fn needs_output_dir(&self) -> bool {
         self.output().is_some()
+    }
+
+    /// 任务已预知的视频时长，用于进度计算。返回 `Some` 可避免包装器重复获取元数据。
+    fn duration(&self) -> Option<Duration> {
+        None
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::{
-    ffmpeg_progress::Progress,
-    infra::{CancelToken, EventBus},
+    domain::CancelToken,
+    infra::{EventBus, Progress},
 };
 use anyhow::Result;
 use std::sync::Arc;
@@ -181,21 +181,16 @@ impl MetadataBuilder {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use crate::{
-        ffmpeg_progress::sample_progress,
-        infra::{MockCancelToken, MockEventBus},
-    };
     use anyhow::anyhow;
-    use insta::assert_debug_snapshot;
-    use std::{assert_matches, fmt, sync::Mutex};
+    use std::{fmt, sync::Mutex};
 
     pub struct MockTask {
         id: usize,
         name: Option<String>,
         run_result: Arc<Mutex<Option<Result<(), TaskError>>>>,
-        run_called: Arc<Mutex<bool>>,
+        pub run_called: Arc<Mutex<bool>>,
         #[allow(clippy::type_complexity)]
         on_run: Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
     }
@@ -306,6 +301,14 @@ pub mod tests {
     pub fn sample_test_metadata_with_id_name(id: usize, name: &str) -> TaskMetadata {
         TaskMetadata::builder().id(id).name(name).build()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infra::test_utils::{MockCancelToken, MockEventBus, sample_progress};
+    use insta::assert_debug_snapshot;
+    use std::assert_matches;
 
     mod status {
         use super::*;
@@ -462,6 +465,7 @@ pub mod tests {
 
     mod task_trait {
         use super::*;
+        use crate::domain::test_utils::MockTask;
 
         #[test]
         fn trait_object_works_normally() {

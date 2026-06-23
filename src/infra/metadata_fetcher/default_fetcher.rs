@@ -1,14 +1,12 @@
 use crate::{
-    infra::{CapturingCommandRunner, CapturingCommandRunnerExt},
-    media_metadata::{MediaMetadata, convert_raw_to_metadata, ffprobe::raw_json::FfprobeRawJson},
+    domain::{Fetcher as MetadataFetcher, Metadata as MediaMetadata},
+    infra::{
+        CapturingCommandRunner, CapturingCommandRunnerExt, FfprobeRawJson, convert_raw_to_metadata,
+    },
 };
 use anyhow::Result;
 use serde_json::from_slice;
 use std::{path::Path, sync::Arc};
-
-pub trait MetadataFetcher: Send + Sync {
-    fn fetch_metadata(&self, input: &Path) -> Result<MediaMetadata>;
-}
 
 pub struct DefaultMetadataFetcher {
     runner: Arc<dyn CapturingCommandRunner>,
@@ -42,64 +40,66 @@ impl MetadataFetcher for DefaultMetadataFetcher {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use crate::{
-        infra::{MockCommandRunner, exit_status},
-        media_metadata::sample_ffprobe_raw_json_bytes,
-    };
-    use insta::assert_debug_snapshot;
-    use std::{path::PathBuf, sync::Mutex, time::Duration};
+    use anyhow::anyhow;
+    use std::{path::PathBuf, sync::Mutex};
 
     #[derive(Default)]
     pub struct MockMetadataFetcher {
-        ok_result: Mutex<Option<MediaMetadata>>,
-        err_msg: Mutex<Option<String>>,
-        call_history: Mutex<Vec<PathBuf>>,
+        state: Mutex<FetcherState>,
+    }
+
+    #[derive(Default)]
+    struct FetcherState {
+        ok: Option<MediaMetadata>,
+        err: Option<String>,
+        calls: Vec<PathBuf>,
     }
 
     impl MockMetadataFetcher {
-        /// 设置成功返回结果，配置一次可重复调用多次返回
         pub fn set_ok(&self, metadata: MediaMetadata) {
-            *self.ok_result.lock().unwrap() = Some(metadata);
-            *self.err_msg.lock().unwrap() = None;
+            let mut s = self.state.lock().unwrap();
+            s.ok = Some(metadata);
+            s.err = None;
         }
 
-        /// 设置错误返回结果，配置一次可重复调用多次返回
         pub fn set_err(&self, msg: &'static str) {
-            *self.err_msg.lock().unwrap() = Some(msg.to_string());
-            *self.ok_result.lock().unwrap() = None;
+            let mut s = self.state.lock().unwrap();
+            s.err = Some(msg.to_string());
+            s.ok = None;
         }
 
-        /// 获取调用历史，校验是否按预期路径调用
         pub fn call_count(&self) -> usize {
-            self.call_history.lock().unwrap().len()
+            self.state.lock().unwrap().calls.len()
         }
 
         pub fn last_call_path(&self) -> Option<PathBuf> {
-            self.call_history.lock().unwrap().last().cloned()
+            self.state.lock().unwrap().calls.last().cloned()
         }
     }
 
     impl MetadataFetcher for MockMetadataFetcher {
         fn fetch_metadata(&self, path: &Path) -> Result<MediaMetadata> {
-            // 记录调用路径
-            self.call_history.lock().unwrap().push(path.to_path_buf());
-
-            // 优先返回错误，错误可重复触发
-            if let Some(msg) = self.err_msg.lock().unwrap().as_ref() {
-                return Err(anyhow::anyhow!(msg.clone()));
+            let mut s = self.state.lock().unwrap();
+            s.calls.push(path.to_path_buf());
+            if let Some(msg) = &s.err {
+                return Err(anyhow!(msg.clone()));
             }
-
-            // 成功结果克隆返回，不消耗原值，支持多次调用
-            self.ok_result
-                .lock()
-                .unwrap()
-                .as_ref()
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("No metadata result set"))
+            s.ok.clone()
+                .ok_or_else(|| anyhow!("No metadata result configured"))
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infra::test_utils::{
+        MockCommandRunner, MockMetadataFetcher, exit_status, sample_ffprobe_raw_json_bytes,
+    };
+    use insta::assert_debug_snapshot;
+    use std::time::Duration;
 
     #[test]
     fn mock_fetcher_returns_configured_success() {
@@ -122,7 +122,7 @@ pub mod tests {
     fn mock_fetcher_no_preset_returns_default_error() {
         let fetcher = MockMetadataFetcher::default();
         let err = fetcher.fetch_metadata(Path::new("/test.mp4")).unwrap_err();
-        assert_debug_snapshot!(err,@r#""No metadata result set""#);
+        assert_debug_snapshot!(err,@r#""No metadata result configured""#);
     }
 
     #[test]

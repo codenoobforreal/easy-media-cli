@@ -25,6 +25,7 @@ mod tests {
     use insta::assert_debug_snapshot;
 
     /// 一个简单的测试错误类型，用于验证 `{:#?}` 多行美化输出。
+    #[allow(dead_code)]
     #[derive(Debug)]
     struct TestError {
         code: i32,
@@ -110,6 +111,7 @@ mod tests {
     #[test]
     fn errors_with_complex_debug_output_work() {
         // 使用元组结构体或枚举，验证 Debug 实现被完整保留
+        #[allow(dead_code)]
         #[derive(Debug)]
         enum ComplexError {
             Io { path: String, code: i32 },

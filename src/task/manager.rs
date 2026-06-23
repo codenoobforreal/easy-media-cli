@@ -1,9 +1,9 @@
 use crate::{
     common::join_errors_with_summary,
-    domain::{Event, Task, TaskError, TaskMetadata},
-    infra::{CancelToken, DefaultCancelToken, EventBus},
+    domain::{CancelToken, Event, Task, TaskError, TaskMetadata},
+    infra::{DefaultCancelToken, EventBus},
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::sync::Arc;
 
 /// 控制任务生命周期，发布生命周期事件，无并发
@@ -113,8 +113,8 @@ impl TaskManager {
 mod tests {
     use super::*;
     use crate::{
-        domain::MockTask,
-        infra::{MockCancelToken, MockEventBus},
+        domain::test_utils::MockTask,
+        infra::test_utils::{MockCancelToken, MockEventBus},
     };
     use insta::assert_debug_snapshot;
     use std::assert_matches;

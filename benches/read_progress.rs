@@ -1,8 +1,12 @@
 use anyhow::Result;
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
-use easy_media_cli::{Event, EventBus, EventHandler, read_progress_impl};
+use easy_media_cli::{
+    domain::Event,
+    infra::{EventBus, EventHandler},
+    task::read_progress_impl,
+};
 use std::{
-    fmt::Write as _,
+    fmt::Write,
     hint::black_box,
     io::Cursor,
     sync::atomic::{AtomicUsize, Ordering},

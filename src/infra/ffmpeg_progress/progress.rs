@@ -1,4 +1,4 @@
-use crate::ffmpeg_progress::RawFfmpegProgress;
+use crate::infra::RawFfmpegProgress;
 use std::time::Duration;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -67,10 +67,8 @@ impl Progress {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use crate::common::approx_eq;
-    use insta::assert_debug_snapshot;
 
     pub fn sample_progress() -> Progress {
         Progress::default()
@@ -79,6 +77,13 @@ pub mod tests {
     pub fn make_progress(percent: f32, elapsed: Duration, eta: Option<Duration>) -> Progress {
         Progress::new(percent, elapsed, eta)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::approx_eq;
+    use insta::assert_debug_snapshot;
 
     #[test]
     fn test_from_raw_progress() {

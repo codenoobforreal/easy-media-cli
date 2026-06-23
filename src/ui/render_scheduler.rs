@@ -99,9 +99,9 @@ impl Default for RenderScheduler {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use crate::{domain::TaskMetadata, ui::MockRenderer};
+    use crate::ui::test_utils::MockRenderer;
     use std::sync::{Arc, Mutex};
 
     /// 构造调度器并返回调用计数句柄
@@ -112,6 +112,12 @@ pub mod tests {
         let sched = RenderScheduler::with_renderer(Box::new(mock));
         (sched, running, final_)
     }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::{domain::TaskMetadata, ui::test_utils::sample_ui_scheduler};
 
     #[test]
     fn default_has_no_pending_updates() {

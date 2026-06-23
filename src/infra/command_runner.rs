@@ -1,5 +1,3 @@
-//! 进程抽象，通用进程执行工具
-
 use anyhow::{Context, Result, anyhow};
 use std::{
     ffi::OsStr,
@@ -109,7 +107,6 @@ impl CommandStreams {
     }
 }
 
-// 手动实现 Debug，规避 dyn trait 派生限制
 impl fmt::Debug for CommandStreams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CommandStreams")
@@ -232,11 +229,8 @@ impl CapturingCommandRunner for DefaultCommandRunner {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub mod test_utils {
     use super::*;
-    use crate::infra::{exit_status, exit_status_with_code};
-    use anyhow::Error;
-    use insta::assert_debug_snapshot;
     use std::{
         ffi::OsString,
         io::Cursor,
@@ -303,133 +297,117 @@ pub mod tests {
 
     #[derive(Default)]
     pub struct MockCommandRunner {
-        // 捕获模式：拆分成功结果与错误消息
-        capture_ok: Mutex<Option<CommandOutput>>,
-        capture_err_msg: Mutex<Option<String>>,
-        capture_args_history: Mutex<Vec<Vec<OsString>>>,
+        state: Mutex<RunnerState>,
+    }
 
-        // 流式模式：存储配置模板，每次 spawn 按需生成新实例
-        spawn_stdout: Mutex<Option<Vec<u8>>>,
-        spawn_stderr: Mutex<Option<Vec<u8>>>,
-        spawn_exit_status: Mutex<Option<ExitStatus>>,
-        spawn_poll_count: Mutex<u32>,
-        spawn_err: Mutex<Option<Error>>, // 保持一次性消费语义
-        spawn_args_history: Mutex<Vec<Vec<OsString>>>,
-        /// 缓存最后一次 spawn 生成的子进程观测器
-        last_child_inner: Mutex<Option<Arc<Mutex<MockChildInner>>>>,
+    #[derive(Default)]
+    struct RunnerState {
+        // Capture 相关
+        capture_ok: Option<CommandOutput>,
+        capture_err: Option<String>,
+        capture_args_history: Vec<Vec<OsString>>,
+
+        // Spawn 相关
+        spawn_stdout: Option<Vec<u8>>,
+        spawn_stderr: Option<Vec<u8>>,
+        spawn_exit_status: Option<ExitStatus>,
+        spawn_poll_count: u32,
+        spawn_err: Option<String>,
+        spawn_args_history: Vec<Vec<OsString>>,
+
+        // 子进程观察
+        last_child_inner: Option<Arc<Mutex<MockChildInner>>>,
     }
 
     impl MockCommandRunner {
-        /// 设置捕获模式成功返回值，配置一次可重复调用多次返回
         pub fn set_capture_ok(&self, status: ExitStatus, stdout: Vec<u8>, stderr: Vec<u8>) {
-            *self.capture_ok.lock().unwrap() = Some(CommandOutput {
+            let mut s = self.state.lock().unwrap();
+            s.capture_ok = Some(CommandOutput {
                 stdout,
                 stderr,
                 status,
             });
-            *self.capture_err_msg.lock().unwrap() = None;
+            s.capture_err = None;
         }
 
-        /// 设置捕获模式错误返回值，配置一次可重复调用多次返回
         pub fn set_capture_err(&self, msg: &'static str) {
-            *self.capture_err_msg.lock().unwrap() = Some(msg.to_string());
-            *self.capture_ok.lock().unwrap() = None;
+            let mut s = self.state.lock().unwrap();
+            s.capture_err = Some(msg.to_string());
+            s.capture_ok = None;
         }
 
-        /// 设置流式模式成功配置，每次 spawn 都会生成全新的子进程句柄，支持无限次调用
         pub fn set_spawn_ok(&self, stdout: Vec<u8>, stderr: Vec<u8>, exit_status: ExitStatus) {
-            *self.spawn_stdout.lock().unwrap() = Some(stdout);
-            *self.spawn_stderr.lock().unwrap() = Some(stderr);
-            *self.spawn_exit_status.lock().unwrap() = Some(exit_status);
-            *self.spawn_poll_count.lock().unwrap() = 0;
-            *self.spawn_err.lock().unwrap() = None;
+            let mut s = self.state.lock().unwrap();
+            s.spawn_stdout = Some(stdout);
+            s.spawn_stderr = Some(stderr);
+            s.spawn_exit_status = Some(exit_status);
+            s.spawn_poll_count = 0;
+            s.spawn_err = None;
         }
 
-        /// 配置子进程退出前的轮询次数，模拟长耗时进程
         pub fn set_spawn_poll_count(&self, polls: u32) {
-            *self.spawn_poll_count.lock().unwrap() = polls;
+            self.state.lock().unwrap().spawn_poll_count = polls;
         }
 
-        /// 设置流式模式启动错误，一次性消费，调用一次后失效
+        /// spawn 错误只消费一次（内部 take）
         pub fn set_spawn_err(&self, msg: &'static str) {
-            *self.spawn_err.lock().unwrap() = Some(anyhow!(msg));
+            let mut s = self.state.lock().unwrap();
+            s.spawn_err = Some(msg.to_string());
         }
 
         pub fn last_spawn_args(&self) -> Vec<OsString> {
-            self.spawn_args_history
+            self.state
                 .lock()
                 .unwrap()
+                .spawn_args_history
                 .last()
                 .cloned()
                 .unwrap_or_default()
         }
 
         pub fn spawn_call_count(&self) -> usize {
-            self.spawn_args_history.lock().unwrap().len()
+            self.state.lock().unwrap().spawn_args_history.len()
         }
 
         pub fn last_capture_args(&self) -> Vec<OsString> {
-            self.capture_args_history
+            self.state
                 .lock()
                 .unwrap()
+                .capture_args_history
                 .last()
                 .cloned()
                 .unwrap_or_default()
         }
 
         pub fn capture_call_count(&self) -> usize {
-            self.capture_args_history.lock().unwrap().len()
+            self.state.lock().unwrap().capture_args_history.len()
         }
 
-        /// 获取上一次spawn生成的子进程内部观测句柄
         pub fn last_child_inner(&self) -> Option<Arc<Mutex<MockChildInner>>> {
-            self.last_child_inner.lock().unwrap().clone()
+            self.state.lock().unwrap().last_child_inner.clone()
         }
     }
 
     impl StreamingCommandRunner for MockCommandRunner {
         fn spawn_raw(&self, _program: &OsStr, args: &[&OsStr]) -> Result<CommandStreams> {
-            // 记录调用参数
-            self.spawn_args_history
-                .lock()
-                .unwrap()
-                .push(args.iter().map(|s| s.to_os_string()).collect());
+            let mut s = self.state.lock().unwrap();
+            s.spawn_args_history
+                .push(args.iter().map(|a| a.to_os_string()).collect());
 
-            // 启动错误保持一次性消费语义
-            if let Some(err) = self.spawn_err.lock().unwrap().take() {
-                return Err(err);
+            // 启动错误一次性消费
+            if let Some(err) = s.spawn_err.take() {
+                return Err(anyhow!(err));
             }
 
-            // 克隆输出模板，不消耗原值，支持多次调用
-            let stdout = self
-                .spawn_stdout
-                .lock()
-                .unwrap()
-                .as_ref()
-                .cloned()
-                .unwrap_or_default();
-
-            let stderr = self
-                .spawn_stderr
-                .lock()
-                .unwrap()
-                .as_ref()
-                .cloned()
-                .unwrap_or_default();
-
-            // 每次 spawn 都生成全新的子进程句柄实例
-            let exit_status = self
+            let stdout = s.spawn_stdout.clone().unwrap_or_default();
+            let stderr = s.spawn_stderr.clone().unwrap_or_default();
+            let exit_status = s
                 .spawn_exit_status
-                .lock()
-                .unwrap()
                 .ok_or_else(|| anyhow!("No spawn exit status configured"))?;
-            let poll_count = *self.spawn_poll_count.lock().unwrap();
+            let poll_count = s.spawn_poll_count;
 
-            // 创建子进程实例
             let child = MockChildHandle::new(exit_status, poll_count);
-            // 克隆内部共享锁，存入runner供测试读取
-            let child_inner = child.observer();
-            *self.last_child_inner.lock().unwrap() = Some(child_inner);
+            s.last_child_inner = Some(child.observer());
 
             Ok(CommandStreams::new(
                 Box::new(Cursor::new(stdout)),
@@ -441,26 +419,28 @@ pub mod tests {
 
     impl CapturingCommandRunner for MockCommandRunner {
         fn run_and_capture_raw(&self, _program: &OsStr, args: &[&OsStr]) -> Result<CommandOutput> {
-            // 记录调用参数
-            self.capture_args_history
-                .lock()
-                .unwrap()
-                .push(args.iter().map(|s| s.to_os_string()).collect());
+            let mut s = self.state.lock().unwrap();
+            s.capture_args_history
+                .push(args.iter().map(|a| a.to_os_string()).collect());
 
-            // 优先返回错误，错误可重复触发
-            if let Some(msg) = self.capture_err_msg.lock().unwrap().as_ref() {
+            if let Some(msg) = &s.capture_err {
                 return Err(anyhow!(msg.clone()));
             }
 
-            // 成功结果克隆返回，支持多次调用
-            self.capture_ok
-                .lock()
-                .unwrap()
-                .as_ref()
-                .cloned()
+            s.capture_ok
+                .clone()
                 .ok_or_else(|| anyhow!("No capture result set"))
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infra::test_utils::{
+        MockChildHandle, MockCommandRunner, exit_status, exit_status_with_code,
+    };
+    use insta::assert_debug_snapshot;
 
     #[test]
     fn child_guard_try_wait_returns_none_before_complete() {
@@ -487,7 +467,7 @@ pub mod tests {
         let observer = child.observer();
         let mut guard = ChildGuard::new(Box::new(child));
         guard.kill().unwrap();
-        assert!(observer.lock().unwrap().kill_called);
+        assert!(observer.lock().unwrap().kill_called());
     }
 
     #[test]
@@ -498,7 +478,7 @@ pub mod tests {
             let _guard = ChildGuard::new(Box::new(child));
             // 作用域结束自动 drop
         }
-        assert!(observer.lock().unwrap().kill_called);
+        assert!(observer.lock().unwrap().kill_called());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::ffmpeg_progress::RawFfmpegProgress;
+use crate::infra::RawFfmpegProgress;
 use anyhow::{Context, Result};
 
 #[derive(Default)]
