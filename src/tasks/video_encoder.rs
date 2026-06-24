@@ -1,4 +1,4 @@
-//! 缩放模式体积质量均衡的svtav1编码器
+//! 缩放模式体积质量均衡的 svtav1 编码器
 //!
 //! ```bash
 //! ffmpeg -h encoder=libsvtav1

@@ -1,0 +1,135 @@
+name: Release
+
+# 当推送一个形如 'v*' 的 tag 时触发，例如 v1.0.0
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  BINARY_BASE: easy-media-cli
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      # 测试包含 insta 行内快照，CI 中不需要更新快照，仅检查通过/失败。
+      - name: Run tests
+        id: run_tests
+        run: cargo test --all-features
+
+  build:
+    name: Build and Release
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      # https://doc.rust-lang.org/nightly/rustc/platform-support.html#tier-1-with-host-tools
+      matrix:
+        include:
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: ${{ env.BINARY_BASE }}-windows-x86_64.exe
+            binary_name: ${{ env.BINARY_BASE }}.exe
+
+          # macOS Intel
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: ${{ env.BINARY_BASE }}-macos-x86_64
+            binary_name: ${{ env.BINARY_BASE }}
+
+          # macOS Apple Silicon
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: ${{ env.BINARY_BASE }}-macos-aarch64
+            binary_name: ${{ env.BINARY_BASE }}
+
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: ${{ env.BINARY_BASE }}-linux-x86_64
+            binary_name: ${{ env.BINARY_BASE }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+          compression-level: 0
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          # 下载到 artifacts/ 目录，每个 artifact 以其名称创建子目录
+          path: artifacts
+
+      # -----------------------------------------------------------------------
+      # 步骤：将下载的各个二进制文件整理到一个扁平目录，并重命名为平台标识
+      # 说明：
+      #   - 每个子目录名称就是 artifact_name（包含平台信息）
+      #   - 每个子目录内只有一个二进制文件（由 upload-artifact 打包后解压得到）
+      #   - 我们将每个子目录中的文件复制到 dist/ 目录，并以子目录名作为新文件名
+      #   - 这样最终 Release 附件就是带有平台后缀的独立文件，用户一目了然
+      # -----------------------------------------------------------------------
+      - name: Flatten and rename binaries
+        run: |
+          mkdir -p dist
+          # 遍历 artifacts 下的所有子目录
+          for dir in artifacts/*/; do
+            # 去除末尾斜杠，获取目录名（即 artifact_name）
+            dirname=$(basename "$dir")
+            # 查找该目录下的第一个普通文件（通常只有一个）
+            file=$(find "$dir" -type f -print -quit)
+            if [ -n "$file" ]; then
+              # 复制文件到 dist，并以目录名作为新文件名
+              cp "$file" "dist/$dirname"
+            else
+              echo "Warning: No file found in $dir" >&2
+            fi
+          done
+          # 列出 dist 内容供调试
+          ls -l dist
+
+      # 恢复可执行权限（对于 Linux/macOS 二进制文件）
+      - name: Set executable permissions
+        run: |
+          chmod +x artifacts/*/easy-media-cli || true
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

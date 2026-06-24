@@ -78,7 +78,7 @@ mod tests {
             .with_context(|| format!("Failed to parse CLI args: {cmd:?}"))?;
         match cli.command {
             Commands::Scs(args) => Ok(args),
-            _ => panic!("parse_scs_args only supports Scs subcommand"),
+            Commands::Ve(..) => panic!("parse_scs_args only supports Scs subcommand"),
         }
     }
 

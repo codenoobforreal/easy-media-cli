@@ -43,7 +43,7 @@ all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
 match_wildcard_for_single_variants = "warn"
-must_use_candidate = "warn"
+must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 doc_markdown = "allow"

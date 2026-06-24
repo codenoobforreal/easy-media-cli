@@ -80,7 +80,7 @@ mod tests {
             .with_context(|| format!("Failed to parse CLI args: {cmd:?}"))?;
         match cli.command {
             Commands::Ve(args) => Ok(args),
-            _ => panic!("parse_ve_args only supports Ve subcommand"),
+            Commands::Scs(..) => panic!("parse_ve_args only supports Ve subcommand"),
         }
     }
 
