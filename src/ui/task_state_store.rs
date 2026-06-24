@@ -143,6 +143,7 @@ impl TaskStateStore {
         entries
     }
 
+    #[allow(dead_code)]
     /// 清空所有状态，支持复用
     pub fn clear(&mut self) {
         self.tasks.clear();

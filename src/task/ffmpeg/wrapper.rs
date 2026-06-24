@@ -418,6 +418,7 @@ mod tests {
             self
         }
 
+        #[allow(dead_code)]
         fn with_args(mut self, args: Vec<OsString>) -> Self {
             self.args = args;
             self
@@ -438,6 +439,7 @@ mod tests {
             self
         }
 
+        #[allow(dead_code)]
         fn with_captured_handler(
             mut self,
             handler: impl Fn(&[u8], &[u8]) -> Result<()> + Send + Sync + 'static,
