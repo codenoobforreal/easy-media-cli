@@ -11,13 +11,13 @@ keywords = ["cli", "ffmpeg", "batch-processing", "video", "thumbnail", "scene-de
 
 [dependencies]
 anyhow = { version = "1" }
-clap = { version = "4", features = ["derive", "wrap_help"] }
-crossterm = { version = "0.29.0" }
+clap = { version = "4", default-features = false, features = ["derive", "std", "help", "usage", "suggestions"] }
+crossterm = { version = "0.29.0", default-features = false, features = ["windows", "events"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 ctrlc = { version = "3" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
-chrono = { version = "0.4" }
 
 [dev-dependencies]
 insta = { version = "1", features = ["filters"] }
@@ -36,7 +36,6 @@ similar.opt-level = 3
 strip = true
 lto = true
 panic = "abort"
-debug = true
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
