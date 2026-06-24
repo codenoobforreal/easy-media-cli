@@ -37,6 +37,25 @@ FFmpeg must be installed and available in your system `PATH`.
 cargo install easy-media-cli
 ```-->
 
+#### Download prebuilt binaries | 下载预编译版本
+
+Prebuilt binaries for Windows, macOS, and Linux are available on the [Releases page](https://github.com/codenoobforreal/easy-media-cli/releases).  
+> 预编译的二进制文件可在 [Releases 页面](https://github.com/codenoobforreal/easy-media-cli/releases) 获取，支持 Windows、macOS 和 Linux。
+
+Download the asset matching your platform, rename it to `easy-media-cli` (optional but convenient for following the examples), and place it in a directory that is on your system `PATH` (e.g. `/usr/local/bin` on macOS/Linux).  
+> 下载对应平台的资产文件，重命名为 `easy-media-cli`（可选，便于直接沿用后续示例命令），并将其放入系统 `PATH` 中的目录，例如 macOS/Linux 的 `/usr/local/bin`。
+
+On macOS and Linux, you may need to make the file executable:  
+> 在 macOS 和 Linux 上，可能需要赋予可执行权限：
+> ```bash
+> chmod +x /path/to/easy-media-cli
+> ```
+
+<!--#### Install via Cargo | 通过 Cargo 安装
+```bash
+cargo install easy-media-cli
+```-->
+
 #### Build from source | 源码编译
 ```bash
 git clone https://github.com/codenoobforreal/easy-media-cli.git
