@@ -6,12 +6,10 @@ on:
     tags:
       - "v*"
 
-env:
-  BINARY_BASE: easy-media-cli
-
 jobs:
   test:
     name: Test
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -29,36 +27,38 @@ jobs:
 
   build:
     name: Build and Release
+    if: github.ref_type == 'tag'
     needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      # https://doc.rust-lang.org/nightly/rustc/platform-support.html#tier-1-with-host-tools
+      # 工具基础名称（如需改名，请同时修改下面 matrix 中的 artifact_name 和 binary_name）
+      # 参考平台支持：https://doc.rust-lang.org/nightly/rustc/platform-support.html#tier-1-with-host-tools
       matrix:
         include:
           # Windows
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: ${{ env.BINARY_BASE }}-windows-x86_64.exe
-            binary_name: ${{ env.BINARY_BASE }}.exe
+            artifact_name: easy-media-cli-windows-x86_64.exe
+            binary_name: easy-media-cli.exe
 
           # macOS Intel
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: ${{ env.BINARY_BASE }}-macos-x86_64
-            binary_name: ${{ env.BINARY_BASE }}
+            artifact_name: easy-media-cli-macos-x86_64
+            binary_name: easy-media-cli
 
           # macOS Apple Silicon
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: ${{ env.BINARY_BASE }}-macos-aarch64
-            binary_name: ${{ env.BINARY_BASE }}
+            artifact_name: easy-media-cli-macos-aarch64
+            binary_name: easy-media-cli
 
           # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: ${{ env.BINARY_BASE }}-linux-x86_64
-            binary_name: ${{ env.BINARY_BASE }}
+            artifact_name: easy-media-cli-linux-x86_64
+            binary_name: easy-media-cli
 
     steps:
       - name: Checkout code
@@ -82,6 +82,7 @@ jobs:
 
   release:
     name: Create GitHub Release
+    if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-latest
     permissions:
