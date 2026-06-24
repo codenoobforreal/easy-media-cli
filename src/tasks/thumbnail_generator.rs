@@ -178,6 +178,7 @@ mod tests {
         }
 
         #[test]
+        #[cfg(windows)]
         fn contains_all_base_arguments() {
             let task = make_task(None);
             let args: Vec<String> = task
@@ -185,26 +186,19 @@ mod tests {
                 .iter()
                 .map(|s| s.to_string_lossy().into_owned())
                 .collect();
-            assert_debug_snapshot!(args,@r#"
-            [
-                "-v",
-                "error",
-                "-skip_frame",
-                "nokey",
-                "-progress",
-                "pipe:1",
-                "-i",
-                "/input/test.mp4",
-                "-vf",
-                "select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p",
-                "-fps_mode",
-                "vfr",
-                "-q:v",
-                "2",
-                "-y",
-                "/output\\test-%04d.jpg",
-            ]
-            "#);
+            assert_debug_snapshot!(args.join(" "),@r#""-v error -skip_frame nokey -progress pipe:1 -i /input/test.mp4 -vf select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p -fps_mode vfr -q:v 2 -y /output\\test-%04d.jpg""#);
+        }
+
+        #[test]
+        #[cfg(unix)]
+        fn contains_all_base_arguments() {
+            let task = make_task(None);
+            let args: Vec<String> = task
+                .build_args()
+                .iter()
+                .map(|s| s.to_string_lossy().into_owned())
+                .collect();
+            assert_debug_snapshot!(args.join(" "),@r#""-v error -skip_frame nokey -progress pipe:1 -i /input/test.mp4 -vf select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p -fps_mode vfr -q:v 2 -y /output/test-%04d.jpg""#);
         }
 
         #[test]

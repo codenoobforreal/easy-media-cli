@@ -720,7 +720,23 @@ mod tests {
         }
 
         #[test]
-        fn signal_terminated_returns_specific_error() {
+        #[cfg(unix)]
+        fn signal_terminated_returns_specific_error_unix() {
+            let suite = TestSuite::new(basic_task());
+            suite
+                .runner
+                .set_capture_ok(exit_status_terminated(), b"any stdout".to_vec(), vec![]);
+            let err = suite.wrapper.run(&suite.bus, &suite.cancel).unwrap_err();
+            assert_debug_snapshot!(err, @r#"
+              Failed(
+                  "FFmpeg process terminated by signal/crash, no exit code",
+              )
+              "#);
+        }
+
+        #[test]
+        #[cfg(windows)]
+        fn signal_terminated_returns_specific_error_windows() {
             let suite = TestSuite::new(basic_task());
             suite
                 .runner

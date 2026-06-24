@@ -572,7 +572,12 @@ mod tests {
         let mut streams = runner.spawn(cmd, args).unwrap();
         let mut buf = String::new();
         streams.stdout.read_to_string(&mut buf).unwrap();
-        assert_debug_snapshot!(buf,@r#""hello\r\n""#);
+        let expected = if cfg!(windows) {
+            "hello\r\n"
+        } else {
+            "hello\n"
+        };
+        assert_eq!(buf, expected);
     }
 
     #[test]
