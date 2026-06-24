@@ -1,0 +1,12 @@
+# 发布 commit 消息模板
+pre-release-commit-message = "chore: 发布 {{version}}"
+# 注解标签消息
+tag-message = "{{version}}"
+# 标签名称（默认已是 v{{version}}，此处显式说明）
+tag-name = "v{{version}}"
+# 禁用 cargo publish（不发布到 crates.io）
+publish = false
+# 推送到名为 upstream 的远程，是默认行为，显示说明
+push-remote = "origin"
+# 限制只能在 master 分支发布
+allow-branch = ["master"]
