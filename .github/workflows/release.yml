@@ -83,6 +83,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          args: -c github --latest --strip header # 只生成最新 tag 的变更，去掉默认标题
+        env:
+          OUTPUT: CHANGELOG.md # 生成的文件名
+          GITHUB_REPO: ${{ github.repository }}
+
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
@@ -118,6 +132,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*
+          body_path: CHANGELOG.md
           draft: false
           prerelease: false
         env:
