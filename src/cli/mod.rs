@@ -49,6 +49,7 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
     let command_runner: Arc<dyn CapturingCommandRunner> = Arc::new(DefaultCommandRunner);
     let metadata_fetcher: Arc<dyn MetadataFetcher> =
         Arc::new(DefaultMetadataFetcher::new(command_runner.clone()));
+    let terminal_renderer = Box::new(DefaultRenderer::default());
 
     match &cli.command {
         Commands::Scs(args) => handle_scene_cut_snap(
@@ -57,6 +58,7 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
             &command_runner,
             &metadata_fetcher,
             &file_system,
+            terminal_renderer,
         )?,
         Commands::Ve(args) => handle_encode_video(
             args,
@@ -64,6 +66,7 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
             &command_runner,
             &metadata_fetcher,
             &file_system,
+            terminal_renderer,
         )?,
     }
 
@@ -81,9 +84,8 @@ pub fn run_batch_ffmpeg_task<F>(
     input: &PathBuf,
     depth: Option<u8>,
     event_bus: Arc<dyn EventBus>,
-    // command_runner: &Arc<dyn CapturingCommandRunner>,
-    // metadata_fetcher: &Arc<dyn MetadataFetcher>,
     file_system: &Arc<dyn FileSystem>,
+    renderer: Box<dyn Renderer>,
     task_factory: F,
 ) -> Result<()>
 where
@@ -101,8 +103,7 @@ where
         tasks.push(task_factory(task_id, video)?);
     }
 
-    let terminal_renderer: Box<dyn Renderer> = Box::new(DefaultRenderer::default());
-    let sync_ui = SyncUi::bind_event_bus(terminal_renderer, event_bus.as_ref())?;
+    let sync_ui = SyncUi::bind_event_bus(renderer, event_bus.as_ref())?;
 
     let task_manager = TaskManager::new(event_bus);
     task_manager.bind_shutdown_listener()?;
@@ -131,10 +132,12 @@ pub mod test_utils {
                 MockCommandRunner, MockEventBus, MockFileSystem, MockMetadataFetcher, exit_status,
             },
         },
+        ui::test_utils::MockRenderer,
     };
     use std::path::PathBuf;
 
     /// 统一构造测试套件：全套 Mock + 默认成功配置，两个子命令通用
+    #[allow(clippy::type_complexity)]
     pub fn setup_test_suite(
         video_files: &Vec<PathBuf>,
     ) -> (
@@ -142,6 +145,7 @@ pub mod test_utils {
         Arc<MockCommandRunner>,
         Arc<MockMetadataFetcher>,
         Arc<MockFileSystem>,
+        Box<dyn Renderer>,
     ) {
         let bus = Arc::new(MockEventBus::default());
         let runner = Arc::new(MockCommandRunner::default());
@@ -171,7 +175,8 @@ pub mod test_utils {
         // 默认命令执行成功（支持多次调用）
         runner.set_spawn_ok(vec![], vec![], exit_status(true));
 
-        (bus, runner, fetcher, fs)
+        let renderer = Box::new(MockRenderer::default());
+        (bus, runner, fetcher, fs, renderer)
     }
 }
 

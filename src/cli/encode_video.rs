@@ -4,6 +4,7 @@ use crate::{
     infra::{CapturingCommandRunner, EventBus, FileSystem},
     task::FfmpegTaskWrapper,
     tasks::VideoEncoder,
+    ui::Renderer,
 };
 use anyhow::Result;
 use clap::{Args, value_parser};
@@ -34,12 +35,14 @@ pub fn handle_encode_video(
     command_runner: &Arc<dyn CapturingCommandRunner>,
     metadata_fetcher: &Arc<dyn MetadataFetcher>,
     file_system: &Arc<dyn FileSystem>,
+    renderer: Box<dyn Renderer>,
 ) -> Result<()> {
     run_batch_ffmpeg_task(
         &args.input,
         args.depth,
         event_bus,
         file_system,
+        renderer,
         |task_id, video| {
             let metadata = metadata_fetcher.fetch_metadata(&video)?;
             let encoder = VideoEncoder::new(
@@ -90,13 +93,21 @@ mod tests {
         runner: &Arc<MockCommandRunner>,
         fetcher: &Arc<MockMetadataFetcher>,
         fs: &Arc<MockFileSystem>,
+        renderer: Box<dyn Renderer>,
     ) -> Result<()> {
         let bus_trait: Arc<dyn EventBus> = bus.clone();
         let runner_trait: Arc<dyn CapturingCommandRunner> = runner.clone();
         let fetcher_trait: Arc<dyn MetadataFetcher> = fetcher.clone();
         let fs_trait: Arc<dyn FileSystem> = fs.clone();
 
-        handle_encode_video(args, bus_trait, &runner_trait, &fetcher_trait, &fs_trait)
+        handle_encode_video(
+            args,
+            bus_trait,
+            &runner_trait,
+            &fetcher_trait,
+            &fs_trait,
+            renderer,
+        )
     }
 
     mod args_parsing {
@@ -240,18 +251,19 @@ mod tests {
 
         #[test]
         fn empty_video_dir_returns_no_video_error() -> Result<()> {
-            let (bus, runner, fetcher, fs) = setup_test_suite(&vec![]);
+            let (bus, runner, fetcher, fs, renderer) = setup_test_suite(&vec![]);
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
-            let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs).unwrap_err();
+            let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer).unwrap_err();
             assert_debug_snapshot!(err, @r#""no video found in path: \n.""#);
             Ok(())
         }
 
         #[test]
         fn single_video_generates_one_task() -> Result<()> {
-            let (bus, runner, fetcher, fs) = setup_test_suite(&vec![PathBuf::from("demo.mp4")]);
+            let (bus, runner, fetcher, fs, renderer) =
+                setup_test_suite(&vec![PathBuf::from("demo.mp4")]);
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
-            run_ve_command(&args, &bus, &runner, &fetcher, &fs)?;
+            run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
 
             match bus
                 .events()
@@ -273,9 +285,9 @@ mod tests {
                 PathBuf::from("b.mkv"),
                 PathBuf::from("c.mov"),
             ];
-            let (bus, runner, fetcher, fs) = setup_test_suite(&videos);
+            let (bus, runner, fetcher, fs, renderer) = setup_test_suite(&videos);
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
-            run_ve_command(&args, &bus, &runner, &fetcher, &fs)?;
+            run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
 
             match bus
                 .events()
@@ -293,9 +305,10 @@ mod tests {
 
         #[test]
         fn custom_output_dir_creates_correct_path() -> Result<()> {
-            let (bus, runner, fetcher, fs) = setup_test_suite(&vec![PathBuf::from("test.mp4")]);
+            let (bus, runner, fetcher, fs, renderer) =
+                setup_test_suite(&vec![PathBuf::from("test.mp4")]);
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", ".", "-o", "/custom/output"])?;
-            run_ve_command(&args, &bus, &runner, &fetcher, &fs)?;
+            run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
 
             let created_dirs = fs.created_dirs();
             assert_debug_snapshot!(created_dirs, @r#"
@@ -308,9 +321,10 @@ mod tests {
 
         #[test]
         fn resolution_propagates_to_ffmpeg_scale() -> Result<()> {
-            let (bus, runner, fetcher, fs) = setup_test_suite(&vec![PathBuf::from("test.mp4")]);
+            let (bus, runner, fetcher, fs, renderer) =
+                setup_test_suite(&vec![PathBuf::from("test.mp4")]);
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", ".", "-r", "1280x720"])?;
-            run_ve_command(&args, &bus, &runner, &fetcher, &fs)?;
+            run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
             let args = runner.last_spawn_args();
             let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
             let filter_str = args[vf_idx + 1].to_string_lossy();
@@ -320,9 +334,10 @@ mod tests {
 
         #[test]
         fn fps_propagates_to_ffmpeg_param() -> Result<()> {
-            let (bus, runner, fetcher, fs) = setup_test_suite(&vec![PathBuf::from("test.mp4")]);
+            let (bus, runner, fetcher, fs, renderer) =
+                setup_test_suite(&vec![PathBuf::from("test.mp4")]);
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", ".", "-f", "30"])?;
-            run_ve_command(&args, &bus, &runner, &fetcher, &fs)?;
+            run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
             let args = runner.last_spawn_args();
             let r_idx = args.iter().position(|s| s == "-vf").unwrap();
             let filter_str = &args[r_idx + 1];
@@ -333,9 +348,9 @@ mod tests {
         #[test]
         fn task_ids_start_from_1_increment() -> Result<()> {
             let videos = vec![PathBuf::from("a.mp4"), PathBuf::from("b.mp4")];
-            let (bus, runner, fetcher, fs) = setup_test_suite(&videos);
+            let (bus, runner, fetcher, fs, renderer) = setup_test_suite(&videos);
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
-            run_ve_command(&args, &bus, &runner, &fetcher, &fs)?;
+            run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
             let started_ids: Vec<usize> = bus
                 .events()
                 .iter()
@@ -350,7 +365,7 @@ mod tests {
 
         #[test]
         fn read_dir_error_propagates_upwards() -> Result<()> {
-            let (bus, runner, fetcher, fs) = setup_test_suite(&vec![]);
+            let (bus, runner, fetcher, fs, renderer) = setup_test_suite(&vec![]);
             fs.set_dir_entries(
                 ".",
                 Err(io::Error::new(
@@ -359,7 +374,7 @@ mod tests {
                 )),
             );
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
-            let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs).unwrap_err();
+            let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer).unwrap_err();
             assert_debug_snapshot!(err, @r#"
                Custom {
                    kind: PermissionDenied,
@@ -371,10 +386,11 @@ mod tests {
 
         #[test]
         fn metadata_fetch_error_propagates_upwards() -> Result<()> {
-            let (bus, runner, fetcher, fs) = setup_test_suite(&vec![PathBuf::from("test.mp4")]);
+            let (bus, runner, fetcher, fs, renderer) =
+                setup_test_suite(&vec![PathBuf::from("test.mp4")]);
             fetcher.set_err("metadata fetch failed");
             let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
-            let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs).unwrap_err();
+            let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer).unwrap_err();
             assert!(err.to_string().contains("metadata fetch failed"));
             Ok(())
         }
