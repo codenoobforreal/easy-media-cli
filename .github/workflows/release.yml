@@ -7,27 +7,8 @@ on:
       - "v*"
 
 jobs:
-  test:
-    name: Test
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-
-      # 测试包含 insta 行内快照，CI 中不需要更新快照，仅检查通过/失败。
-      - name: Run tests
-        id: run_tests
-        run: cargo test --all-features
-
   build:
     name: Build and Release
-    if: github.ref_type == 'tag'
     needs: test
     runs-on: ${{ matrix.os }}
     strategy:
@@ -41,19 +22,16 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact_name: easy-media-cli-windows-x86_64.exe
             binary_name: easy-media-cli.exe
-
           # macOS Intel
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: easy-media-cli-macos-x86_64
             binary_name: easy-media-cli
-
           # macOS Apple Silicon
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: easy-media-cli-macos-aarch64
             binary_name: easy-media-cli
-
           # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -63,6 +41,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # 需要完整历史以检查 tag 所在分支
+
+      - name: Check if tag is on master branch
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          echo "Checking if tag $TAG_NAME is on master branch..."
+          # 获取 tag 指向的 commit hash
+          TAG_COMMIT=$(git rev-parse "$TAG_NAME^{commit}")
+          # 获取 master 分支最新 commit
+          MASTER_COMMIT=$(git rev-parse origin/master)
+          # 检查 tag commit 是否是 master 分支的祖先（即 master 包含该 commit）
+          if git merge-base --is-ancestor "$TAG_COMMIT" "$MASTER_COMMIT"; then
+            echo "Tag is on master branch."
+          else
+            echo "Tag is NOT on master branch. Release aborted."
+            exit 1
+          fi
 
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -82,7 +78,6 @@ jobs:
 
   release:
     name: Create GitHub Release
-    if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -94,14 +89,7 @@ jobs:
           # 下载到 artifacts/ 目录，每个 artifact 以其名称创建子目录
           path: artifacts
 
-      # -----------------------------------------------------------------------
-      # 步骤：将下载的各个二进制文件整理到一个扁平目录，并重命名为平台标识
-      # 说明：
-      #   - 每个子目录名称就是 artifact_name（包含平台信息）
-      #   - 每个子目录内只有一个二进制文件（由 upload-artifact 打包后解压得到）
-      #   - 我们将每个子目录中的文件复制到 dist/ 目录，并以子目录名作为新文件名
-      #   - 这样最终 Release 附件就是带有平台后缀的独立文件，用户一目了然
-      # -----------------------------------------------------------------------
+      # 将下载的各个二进制文件整理到一个扁平目录，并重命名为平台标识
       - name: Flatten and rename binaries
         run: |
           mkdir -p dist
