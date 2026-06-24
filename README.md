@@ -1,6 +1,6 @@
 # easy-media-cli
 
-[English README](README-EN.md)
+[English README](README_EN.md)
 
 > 一款基于 FFmpeg 的轻量级命令行工具，用于批量视频处理与场景检测缩略图生成
 
