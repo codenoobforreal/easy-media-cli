@@ -1,6 +1,6 @@
 # easy-media-cli
 
-[English README](README_EN.md)
+[English README](README_en.md)
 
 > 一款基于 FFmpeg 的轻量级命令行工具，用于批量视频处理与场景检测缩略图生成
 
@@ -10,15 +10,20 @@
 
 ## 核心特性
 
-- 批量场景检测缩略图：基于视频画面变化自动提取关键帧，无需手动挑选时间点
-- 视频编码：通过 SVT-AV1 进行 AV1 编码，自动处理分辨率缩放、帧率上限和 CRF 质量控制 — 仅服务于个人归档流程，非通用编码器
-- 终端实时 UI：内置终端进度交互界面，实时展示任务状态与执行结果汇总
+- **批量场景检测缩略图**：基于视频画面变化自动提取关键帧，无需手动挑选时间点
+- **视频编码**：通过 SVT-AV1 进行 AV1 编码，自动处理分辨率缩放、帧率上限和 CRF 质量控制 — 仅服务于个人归档流程，非通用编码器
+- **终端实时 UI**：内置终端进度交互界面，实时展示任务状态与执行结果汇总
 
 ## 快速开始
 
 ### 前置依赖
 
-需提前安装 FFmpeg 完全版并确保可在系统环境变量 PATH 中调用。
+本工具依赖 FFmpeg 的 `libsvtav1` 编码器来实现 SVT‑AV1 视频编码。**标准 FFmpeg 构建通常不包含该编码器**，因此您必须安装 **包含 `libsvtav1` 的 FFmpeg 完整版（full build）**，并确保 ffmpeg 命令可在系统环境变量 PATH 中调用。
+
+安装后，建议运行以下命令验证 `libsvtav1` 是否可用，若输出包含 `libsvtav1`，则表示编码器已就绪。
+```bash
+ffmpeg -h encoder=libsvtav1
+```
 
 ### 安装
 
@@ -72,29 +77,29 @@ easy-media-cli ve [OPTIONS] --input <INPUT>
 
 1. 为单个视频生成缩略图
 ```bash
-easy-media scs -i demo.mp4
+easy-media-cli scs -i demo.mp4
 ```
 
 2. 批量处理目录，自定义场景敏感度
 ```bash
-easy-media scs -i ./videos -t 5 -o ./thumbnails
+easy-media-cli scs -i ./videos -t 5 -o ./thumbnails
 ```
 
 3. 递归扫描目录，生成指定宽度的缩略图
 ```bash
-easy-media scs -i ./media -w 480 -d 3
+easy-media-cli scs -i ./media -w 480 -d 3
 ```
 
 #### 视频编码 (SVTAV1)
 
 1. 编码单个视频，限制分辨率至 720p 且帧率不超过 24
 ```bash
-easy-media encode -i demo.mp4 -r 720 -f 24
+easy-media-cli encode -i demo.mp4 -r 720 -f 24
 ```
 
 2. 批量编码目录，输出到指定文件夹
 ```bash
-easy-media encode -i ./raw_videos -o ./encoded -r 1080
+easy-media-cli encode -i ./raw_videos -o ./encoded -r 1080
 ```
 
 ## 开发指南

@@ -18,7 +18,12 @@
 
 ### Prerequisites
 
-FFmpeg full build must be installed and available in your system `PATH`.
+This tool relies on FFmpeg's `libsvtav1` encoder for SVT‑AV1 video encoding. **Standard FFmpeg builds usually do not include this encoder**, so you must install a **full FFmpeg build that includes `libsvtav1`** and ensure the ffmpeg command is available in your system PATH.
+
+After installation, it is recommended to verify that `libsvtav1` is available by running. If the output lists `libsvtav1`, the encoder is ready.
+```bash
+ffmpeg -h encoder=libsvtav1
+```
 
 ### Installation
 
@@ -69,30 +74,32 @@ easy-media-cli ve [OPTIONS] --input <INPUT>
 ### Examples
 
 #### Scene‑snap thumbnails
-1. **Generate thumbnails for a single video**
+
+1. Generate thumbnails for a single video
 ```bash
-easy-media scs -i demo.mp4
+easy-media-cli scs -i demo.mp4
 ```
 
-2. **Batch process a directory with custom sensitivity**
+2. Batch process a directory with custom sensitivity
 ```bash
-easy-media scs -i ./videos -t 5 -o ./thumbnails
+easy-media-cli scs -i ./videos -t 5 -o ./thumbnails
 ```
 
-3. **Recursive scan with fixed output width**
+3. Recursive scan with fixed output width
 ```bash
-easy-media scs -i ./media -w 480 -d 3
+easy-media-cli scs -i ./media -w 480 -d 3
 ```
 
 #### Video encoding (SVTAV1)
-1. **Encode a single video, cap resolution to 720p and framerate to 24**
+
+1. Encode a single video, cap resolution to 720p and framerate to 24
 ```bash
-easy-media encode -i demo.mp4 -r 720 -f 24
+easy-media-cli encode -i demo.mp4 -r 720 -f 24
 ```
 
-2. **Batch encode a directory, output to a custom folder**
+2. Batch encode a directory, output to a custom folder
 ```bash
-easy-media encode -i ./raw_videos -o ./encoded -r 1080
+easy-media-cli encode -i ./raw_videos -o ./encoded -r 1080
 ```
 
 ## Development
