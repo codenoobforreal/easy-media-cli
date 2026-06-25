@@ -1,4 +1,10 @@
-use crate::task::FfmpegTask;
+use crate::{
+    task::FfmpegTask,
+    tasks::{
+        FPS_MODE_ARGS, LOG_ERROR_ARGS, OVERWRITE_ARGS, PROGRESS_ARGS, SKIP_FRAME_ARGS,
+        VIDEO_QUALITY_ARGS,
+    },
+};
 use anyhow::{Context, Result};
 use std::{
     ffi::{OsStr, OsString},
@@ -63,7 +69,9 @@ impl ThumbnailGenerator {
     pub fn build_ffmpeg_args(&self) -> Vec<OsString> {
         let threshold: f64 = f64::from(self.scene_threshold) / 10.0;
 
-        // FFmpeg 的 -vf 参数用逗号 , 来分隔不同的滤镜（链），例如 filter1,filter2。如果某个滤镜的参数内部需要出现逗号，就必须用反斜杠 \ 对它进行转义，写成 \,，否则 FFmpeg 会错误地把这个逗号当成滤镜分隔符，导致解析失败。滤镜链中包含 select=gt(scene,0.5)，这里的 scene,0.5 是 gt 函数的参数，里面的逗号不是用来分隔滤镜的，所以必须写成 select=gt(scene\,0.5)。
+        // FFmpeg 的 -vf 参数用逗号 , 来分隔不同的滤镜（链），例如 filter1,filter2。
+        // 如果某个滤镜的参数内部需要出现逗号，就必须用反斜杠 \ 对它进行转义，写成 \,，
+        // 否则 FFmpeg 会错误地把这个逗号当成滤镜分隔符，导致解析失败。
         let video_filter_str: OsString = match self.width {
             None => format!(
                 "select=gt(scene\\,{threshold:.1}),scale=in_range=auto:out_range=full,format=yuv420p",
@@ -75,30 +83,26 @@ impl ThumbnailGenerator {
             .into(),
         };
 
-        let args = vec![
-            // 日志控制
-            OsString::from("-v"),
-            OsString::from("error"),
-            OsString::from("-skip_frame"),
-            OsString::from("nokey"),
-            // 进度管道输出
-            OsString::from("-progress"),
-            OsString::from("pipe:1"),
-            // 输入文件
-            OsString::from("-i"),
-            OsString::from(&self.input),
-            // 视频滤镜
-            OsString::from("-vf"),
-            video_filter_str,
-            // 帧率、画质参数
-            OsString::from("-fps_mode"),
-            OsString::from("vfr"),
-            OsString::from("-q:v"),
-            OsString::from("2"),
-            // 覆盖输出 + 输出路径
-            OsString::from("-y"),
-            OsString::from(&self.output),
-        ];
+        let mut args: Vec<OsString> = Vec::new();
+
+        // 日志 & 进度
+        args.extend(LOG_ERROR_ARGS.iter().map(OsString::from));
+        args.extend(SKIP_FRAME_ARGS.iter().map(OsString::from));
+        args.extend(PROGRESS_ARGS.iter().map(OsString::from));
+
+        // 输入文件
+        args.extend([OsString::from("-i"), OsString::from(&self.input)]);
+
+        // 视频滤镜
+        args.extend([OsString::from("-vf"), video_filter_str]);
+
+        // 输出参数
+        args.extend(FPS_MODE_ARGS.iter().map(OsString::from));
+        args.extend([OsString::from(VIDEO_QUALITY_ARGS), OsString::from("2")]);
+        args.push(OsString::from(OVERWRITE_ARGS));
+
+        // 输出文件
+        args.push(OsString::from(&self.output));
 
         args
     }

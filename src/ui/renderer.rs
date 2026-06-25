@@ -1,6 +1,6 @@
 use crate::{
     domain::{Status, TaskMetadata},
-    ui::{Stats, render_progress_bar},
+    ui::{FAILED_LIST_TITLE, RESULT_LIST_TITLE, Stats, render_progress_bar},
 };
 use anyhow::{Context, Result};
 use crossterm::{
@@ -9,9 +9,6 @@ use crossterm::{
     terminal::{Clear, ClearType},
 };
 use std::io::{Stderr, Stdout, Write, stderr, stdout};
-
-const FAILED_LIST_TITLE: &str = "List of failed tasks:";
-const RESULT_LIST_TITLE: &str = "Task results:";
 
 /// 所有 UI 实现（终端、Web、GUI 等）都必须实现此特性。核心引擎仅通过此接口触发渲染，并与具体实现完全解耦
 pub trait Renderer: Send + Sync {

@@ -2,15 +2,16 @@
 
 use crate::{
     domain::Event,
-    ui::{DefaultRenderer as TerminalRenderer, Renderer, TaskStateStore},
+    ui::{
+        CANCEL_MSG, DefaultRenderer as TerminalRenderer, RENDER_INTERVAL, Renderer, SUCCESS_MSG,
+        TaskStateStore,
+    },
 };
 use anyhow::Result;
 use std::{
     io::{stderr, stdout},
-    time::{Duration, Instant},
+    time::Instant,
 };
-
-const RENDER_INTERVAL: Duration = Duration::from_millis(100);
 
 /// UI 渲染调度器：只负责渲染节流、调用渲染后端
 pub struct RenderScheduler {
@@ -21,9 +22,6 @@ pub struct RenderScheduler {
 }
 
 impl RenderScheduler {
-    const SUCCESS_MSG: &str = "All tasks were processed successfully!";
-    const CANCEL_MSG: &str = "Tasks execution cancelled by user!";
-
     /// 默认使用 `TerminalRenderer` 的 `new` 方法
     pub fn new() -> Self {
         let renderer = Box::new(TerminalRenderer::new(stdout(), stderr()));
@@ -61,9 +59,9 @@ impl RenderScheduler {
         let stats = self.state_store.get_final_stats();
 
         let message = if is_cancelled {
-            Self::CANCEL_MSG
+            CANCEL_MSG
         } else {
-            Self::SUCCESS_MSG
+            SUCCESS_MSG
         };
         let task_list = self.state_store.task_list();
         self.renderer.render_final(&stats, &task_list, message)
@@ -86,6 +84,7 @@ impl RenderScheduler {
     // 将上次渲染时间回溯到 200ms 前，确保满足 100ms 间隔要求
     #[cfg(test)]
     pub(crate) fn skip_render_interval(&mut self) {
+        use std::time::Duration;
         self.last_render_time = Instant::now()
             .checked_sub(Duration::from_millis(200))
             .unwrap();
@@ -116,6 +115,8 @@ pub mod test_utils {
 
 #[cfg(test)]
 pub mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::{domain::TaskMetadata, ui::test_utils::sample_ui_scheduler};
 

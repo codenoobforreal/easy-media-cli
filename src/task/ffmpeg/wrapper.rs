@@ -8,6 +8,7 @@ use crate::{
         FfmpegProgressParser, FileSystem, ProgressTracker, StreamingCommandRunnerExt,
     },
     task::{ExecutionMode, ffmpeg::FfmpegTask},
+    ui::RENDER_INTERVAL,
 };
 use anyhow::{Context, Result, anyhow};
 use std::{
@@ -182,11 +183,9 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         cancel_token: &dyn CancelToken,
     ) -> Result<ExitStatus> {
         // 配置轮询间隔策略
-        const INITIAL_SLEEP: Duration = Duration::from_millis(10);
-        const MAX_SLEEP: Duration = Duration::from_millis(100);
         const QUICK_CHECKS: u32 = 4;
 
-        let mut sleep_duration = INITIAL_SLEEP;
+        let mut sleep_duration = Duration::from_millis(10);
         let mut checks = 0;
 
         loop {
@@ -203,7 +202,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
             thread::sleep(sleep_duration);
             checks += 1;
             if checks > QUICK_CHECKS {
-                sleep_duration = (sleep_duration * 2).min(MAX_SLEEP);
+                sleep_duration = (sleep_duration * 2).min(RENDER_INTERVAL);
             }
         }
     }
@@ -319,7 +318,7 @@ pub fn read_progress_impl(
         let now = Instant::now();
         let elapsed = now - start_time;
         let time_since_last_publish = now - last_publish;
-        if time_since_last_publish >= Duration::from_millis(100)
+        if time_since_last_publish >= RENDER_INTERVAL
             && let Some(progress) = tracker.update(raw_progress, elapsed)
         {
             event_bus.publish(Event::TaskProgress { id, progress })?;

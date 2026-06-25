@@ -2,15 +2,12 @@
 
 use crate::{
     infra::EventBus,
-    ui::{RenderScheduler, Renderer},
+    ui::{RENDER_INTERVAL, RenderScheduler, Renderer},
 };
 use anyhow::{Result, anyhow};
-use std::{
-    sync::{
-        Arc, Mutex, MutexGuard,
-        mpsc::{Receiver, RecvTimeoutError},
-    },
-    time::Duration,
+use std::sync::{
+    Arc, Mutex, MutexGuard,
+    mpsc::{Receiver, RecvTimeoutError},
 };
 
 /// 跨线程安全包装后的 `UI`，内置事件订阅绑定逻辑
@@ -36,7 +33,7 @@ impl SyncUi {
     /// 阻塞主线程，驱动节流渲染，等待任务子线程执行完毕
     pub fn block_on_task_thread_finish_channel(&self, rx: &Receiver<Result<()>>) -> Result<()> {
         loop {
-            match rx.recv_timeout(Duration::from_millis(100)) {
+            match rx.recv_timeout(RENDER_INTERVAL) {
                 Ok(result) => return result,
 
                 Err(RecvTimeoutError::Timeout) => {
@@ -74,7 +71,7 @@ mod tests {
         ui::test_utils::MockRenderer,
     };
     use insta::assert_debug_snapshot;
-    use std::{sync::mpsc, thread};
+    use std::{sync::mpsc, thread, time::Duration};
 
     #[test]
     fn bind_event_bus_forwards_events_to_inner() {

@@ -9,13 +9,21 @@ mod stats;
 mod sync_ui;
 mod task_state_store;
 
+use std::time::Duration;
+
 use progress_bar::render_progress_bar;
 use render_scheduler::RenderScheduler;
 pub use renderer::{DefaultRenderer, Renderer};
 use stats::Stats;
-
 pub use sync_ui::SyncUi;
 use task_state_store::TaskStateStore;
+
+/// terminal 渲染间隔
+pub const RENDER_INTERVAL: Duration = Duration::from_millis(100);
+pub const SUCCESS_MSG: &str = "All tasks were processed successfully!";
+pub const CANCEL_MSG: &str = "Tasks execution cancelled by user!";
+pub const FAILED_LIST_TITLE: &str = "List of failed tasks:";
+pub const RESULT_LIST_TITLE: &str = "Task results:";
 
 #[cfg(test)]
 pub mod test_utils {

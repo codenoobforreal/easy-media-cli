@@ -12,6 +12,10 @@
 use crate::{
     domain::{Metadata as MediaMetadata, Orientation, Resolution},
     task::FfmpegTask,
+    tasks::{
+        CODEC_SVTAV1_ARGS, COPY_AUDIO_ARGS, LOG_ERROR_ARGS, PIX_FMT_10LE_ARGS, PRESET_SVTAV1_ARGS,
+        PROGRESS_ARGS, SVTAV1_PARAMS_ARGS,
+    },
 };
 use anyhow::{Context, Result};
 use chrono::Local;
@@ -121,45 +125,38 @@ impl VideoEncoder {
     ///   - qm-min=0 允许最大程度的非均匀量化，提升高频系数压缩力度
     ///   - qp-scale-compress-strength=1：压缩同一 mini-GOP 内不同时间层之间的 QP 差异。减轻帧间质量波动，使画面观感更一致；保守级别（1）几乎无副作用，不会影响平均画质
     fn build_ffmpeg_args(&self) -> Vec<OsString> {
-        let mut args = vec![
-            // 日志控制
-            OsString::from("-v"),
-            OsString::from("error"),
-            // 进度管道输出
-            OsString::from("-progress"),
-            OsString::from("pipe:1"),
-            // 输入文件
-            OsString::from("-i"),
-            OsString::from(&self.input),
-            // 编码器
-            OsString::from("-c:v"),
-            OsString::from("libsvtav1"),
-            // 预设
-            OsString::from("-preset"),
-            OsString::from("4"),
-            // crf
-            OsString::from("-crf"),
-            OsString::from(self.crf.to_string()),
-            // GOP 大小
-            OsString::from("-g"),
-            OsString::from(self.gop().to_string()),
-            // 像素格式
-            OsString::from("-pix_fmt"),
-            OsString::from("yuv420p10le"),
-            // SVT-AV1 特殊参数
-            OsString::from("-svtav1-params"),
-            OsString::from(
-                "tune=0:film-grain=8:enable-qm=1:qm-min=0:qm-max=15:qp-scale-compress-strength=1",
-            ),
-            // 音频流复制，避免重新编码
-            OsString::from("-c:a"),
-            OsString::from("copy"),
-        ];
+        let mut args: Vec<OsString> = Vec::new();
 
+        // 日志 & 进度
+        args.extend(LOG_ERROR_ARGS.iter().map(OsString::from));
+        args.extend(PROGRESS_ARGS.iter().map(OsString::from));
+
+        // 输入文件
+        args.extend([OsString::from("-i"), OsString::from(&self.input)]);
+
+        // SVT-AV1 编码器及固定参数
+        args.extend(CODEC_SVTAV1_ARGS.iter().map(OsString::from));
+        args.extend([OsString::from(PRESET_SVTAV1_ARGS), OsString::from("4")]);
+
+        // CRF 值（动态）
+        args.extend([OsString::from("-crf"), OsString::from(self.crf.to_string())]);
+
+        // GOP 大小（动态）
+        args.extend([OsString::from("-g"), OsString::from(self.gop().to_string())]);
+
+        // 像素格式 & 额外参数
+        args.extend(PIX_FMT_10LE_ARGS.iter().map(OsString::from));
+        args.extend(SVTAV1_PARAMS_ARGS.iter().map(OsString::from));
+
+        // 音频流复制
+        args.extend(COPY_AUDIO_ARGS.iter().map(OsString::from));
+
+        // 可选的视频滤镜（动态）
         if let Some(vf_str) = self.video_filter() {
             args.extend([OsString::from("-vf"), OsString::from(vf_str)]);
         }
 
+        // 输出文件
         args.push(OsString::from(&self.output));
 
         args

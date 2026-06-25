@@ -3,6 +3,7 @@ use crate::{
     domain::Event,
     infra::{EventBus, FfprobeRawJson, convert_raw_to_metadata},
     task::{ExecutionMode, FfmpegTask},
+    tasks::{LOG_ERROR_ARGS, OUTPUT_FORMAT_JSON_ARGS, SHOW_ENTRIES_ARGS},
 };
 use anyhow::{Result, anyhow};
 use serde_json::from_slice;
@@ -47,15 +48,12 @@ impl FfmpegTask for MediaMetadataGetter {
     }
 
     fn build_args(&self) -> Vec<OsString> {
-        vec![
-            OsString::from("-v"),
-            OsString::from("quiet"),
-            OsString::from("-show_entries"),
-            OsString::from("program:format:stream:chapter"),
-            OsString::from("-of"),
-            OsString::from("json"),
-            OsString::from(&self.input),
-        ]
+        let mut args = Vec::new();
+        args.extend(LOG_ERROR_ARGS.iter().map(OsString::from));
+        args.extend(SHOW_ENTRIES_ARGS.iter().map(OsString::from));
+        args.extend(OUTPUT_FORMAT_JSON_ARGS.iter().map(OsString::from));
+        args.push(OsString::from(&self.input));
+        args
     }
 
     fn file_name(&self) -> Option<&std::ffi::OsStr> {
@@ -157,7 +155,7 @@ mod tests {
         assert_debug_snapshot!(args,@r#"
         [
             "-v",
-            "quiet",
+            "error",
             "-show_entries",
             "program:format:stream:chapter",
             "-of",
