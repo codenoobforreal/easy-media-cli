@@ -16,7 +16,7 @@ pub use command_runner::{
 };
 pub use event_bus::{DefaultEventBus, EventBus, EventHandler};
 pub use ffmpeg_progress::{FfmpegProgressParser, Progress, ProgressTracker, RawFfmpegProgress};
-pub use file_system::{DefaultFileSystem, FileSystem, FileType};
+pub use file_system::{DefaultFileSystem, FileSystem, FileType, MockFileSystem};
 pub use metadata_fetcher::{DefaultMetadataFetcher, FfprobeRawJson, convert_raw_to_metadata};
 
 #[cfg(test)]
@@ -27,7 +27,6 @@ pub mod test_utils {
     pub use command_runner::test_utils::{MockChildHandle, MockCommandRunner};
     pub use event_bus::test_utils::MockEventBus;
     pub use ffmpeg_progress::test_utils::{make_progress, sample_progress};
-    pub use file_system::test_utils::MockFileSystem;
     pub use metadata_fetcher::test_utils::{
         MockMetadataFetcher, sample_ffprobe_audio_stream, sample_ffprobe_format,
         sample_ffprobe_raw_json, sample_ffprobe_raw_json_bytes, sample_ffprobe_subtitle_stream,

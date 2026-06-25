@@ -6,7 +6,7 @@ mod parser;
 mod time;
 
 pub use error::join_errors_with_summary;
-pub use media_scan::collect_videos;
+pub use media_scan::{collect_videos, is_video_file};
 pub use parser::parse_float_str;
 pub use time::format_duration;
 

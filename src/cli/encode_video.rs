@@ -70,7 +70,10 @@ mod tests {
     use crate::{
         cli::{Cli, Commands, test_utils::setup_test_suite},
         domain::Event,
-        infra::test_utils::{MockCommandRunner, MockEventBus, MockFileSystem, MockMetadataFetcher},
+        infra::{
+            MockFileSystem,
+            test_utils::{MockCommandRunner, MockEventBus, MockMetadataFetcher},
+        },
     };
     use anyhow::{Context, Result};
     use clap::Parser;

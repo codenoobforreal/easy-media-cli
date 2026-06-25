@@ -127,10 +127,8 @@ pub mod test_utils {
     use crate::{
         domain::{Metadata as MediaMetadata, VideoStream},
         infra::{
-            FileType,
-            test_utils::{
-                MockCommandRunner, MockEventBus, MockFileSystem, MockMetadataFetcher, exit_status,
-            },
+            FileType, MockFileSystem,
+            test_utils::{MockCommandRunner, MockEventBus, MockMetadataFetcher, exit_status},
         },
         ui::test_utils::MockRenderer,
     };

@@ -335,9 +335,12 @@ mod tests {
     use super::*;
     use crate::{
         domain::Metadata as MediaMetadata,
-        infra::test_utils::{
-            MockCancelToken, MockCommandRunner, MockEventBus, MockFileSystem, MockMetadataFetcher,
-            exit_status, exit_status_terminated, exit_status_with_code,
+        infra::{
+            MockFileSystem,
+            test_utils::{
+                MockCancelToken, MockCommandRunner, MockEventBus, MockMetadataFetcher, exit_status,
+                exit_status_terminated, exit_status_with_code,
+            },
         },
     };
     use insta::{assert_debug_snapshot, assert_snapshot};

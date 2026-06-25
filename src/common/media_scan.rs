@@ -20,60 +20,100 @@ pub fn collect_videos(
 ) -> io::Result<Vec<PathBuf>> {
     let path = path.as_ref();
     let meta = fs.symlink_metadata(path)?;
+    let mut videos = Vec::new();
+
     match meta {
-        FileType::File | FileType::Symlink => Ok(if is_video_file(path) {
-            vec![path.to_path_buf()]
-        } else {
-            vec![]
-        }),
-        FileType::Dir => traverse_videos(fs, path, max_depth),
-    }
-}
-
-/// 检查文件是否为视频文件（根据其文件扩展名）
-fn is_video_file<P: AsRef<Path>>(path: P) -> bool {
-    const EXTS: &[&str] = &[
-        "3gp", "avi", "flv", "m4v", "mov", "mpg", "mts", "ogv", "ts", "f4v", "m2v", "mp4", "webm",
-        "wmv", "rmvb", "mkv",
-    ];
-
-    path.as_ref()
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|s| EXTS.contains(&s.to_lowercase().as_str()))
-}
-
-fn traverse_videos(
-    fs: &dyn FileSystem,
-    dir: &Path,
-    remaining_depth: Option<u8>,
-) -> io::Result<Vec<PathBuf>> {
-    let entries = fs.read_dir(dir)?;
-    let mut videos = vec![];
-
-    for entry in entries {
-        let meta = fs.symlink_metadata(&entry)?;
-        match meta {
-            FileType::File | FileType::Symlink => {
-                if is_video_file(&entry) {
-                    videos.push(entry);
-                }
+        FileType::File | FileType::Symlink => {
+            if is_video_file(path) {
+                videos.push(path.to_path_buf());
             }
-            FileType::Dir if remaining_depth != Some(0) => {
-                let next_depth = remaining_depth.map(|d| d - 1);
-                videos.extend(traverse_videos(fs, &entry, next_depth)?);
-            }
-            FileType::Dir => {}
+        }
+        FileType::Dir => {
+            traverse_videos(fs, path, max_depth, &mut videos)?;
         }
     }
 
     Ok(videos)
 }
 
+fn traverse_videos(
+    fs: &dyn FileSystem,
+    root: &Path,
+    max_depth: Option<u8>,
+    videos: &mut Vec<PathBuf>,
+) -> io::Result<()> {
+    let mut stack = vec![(root.to_path_buf(), max_depth)];
+
+    while let Some((dir, depth)) = stack.pop() {
+        for entry in fs.read_dir(&dir)? {
+            let meta = fs.symlink_metadata(&entry)?;
+            match meta {
+                FileType::File | FileType::Symlink => {
+                    if is_video_file(&entry) {
+                        videos.push(entry);
+                    }
+                }
+                FileType::Dir if depth != Some(0) => {
+                    let next_depth = depth.map(|d| d - 1);
+                    stack.push((entry, next_depth));
+                }
+                FileType::Dir => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+// const EXTS: &[&str] = &[
+//     "dv", "ts", "qt", "rm", "3gp", "3g2", "avi", "asf", "dvd", "dat", "f4v", "flv", "m4v", "mov",
+//     "mpg", "mod", "mts", "m2v", "mp4", "wmv", "mkv", "mts", "ogv", "ogg", "oga", "vob", "m2ts",
+//     "mpeg", "webm", "rmvb",
+// ];
+
+/// 检查文件是否为视频文件（根据其文件扩展名）
+pub fn is_video_file<P: AsRef<Path>>(path: P) -> bool {
+    path.as_ref().extension().is_some_and(|ext| {
+        let bytes = ext.as_encoded_bytes();
+        let len = bytes.len();
+        if len > 32 {
+            return false;
+        }
+        let mut lower = [0u8; 32]; // 合理的扩展名上限长度
+        for (i, &b) in bytes.iter().enumerate() {
+            lower[i] = b.to_ascii_lowercase();
+        }
+        // 按字母顺序排序，后续新增可直接添加
+        matches!(&lower[..len], |b"3gp"| b"3g2"
+            | b"asf"
+            | b"avi"
+            | b"dv"
+            | b"f4v"
+            | b"flv"
+            | b"m2ts"
+            | b"m2v"
+            | b"m4v"
+            | b"mkv"
+            | b"mod"
+            | b"mov"
+            | b"mp4"
+            | b"mpeg"
+            | b"mpg"
+            | b"mts"
+            | b"ogv"
+            | b"qt"
+            | b"rm"
+            | b"rmvb"
+            | b"ts"
+            | b"vob"
+            | b"webm"
+            | b"wmv")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infra::test_utils::MockFileSystem;
+    use crate::infra::MockFileSystem;
     use insta::assert_debug_snapshot;
     use std::io::ErrorKind;
 

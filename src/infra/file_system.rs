@@ -1,6 +1,8 @@
 use std::{
-    fs, io,
+    collections::HashMap,
+    fs, io, mem,
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 pub trait FileSystem: Send + Sync {
@@ -67,105 +69,99 @@ impl FileSystem for DefaultFileSystem {
     }
 }
 
-#[cfg(test)]
-pub mod test_utils {
-    use super::*;
-    use std::{collections::HashMap, io, mem, sync::Mutex};
+/// 由于 bench 中也是用到了这个 mock，我们直接暴露该结构体
+#[derive(Default)]
+pub struct MockFileSystem {
+    state: Mutex<FsState>,
+}
 
-    #[derive(Default)]
-    pub struct MockFileSystem {
-        state: Mutex<FsState>,
-    }
+struct FsState {
+    created_dirs: Vec<PathBuf>,
+    create_dir_result: io::Result<()>, // 默认 Ok
+    metadata: HashMap<PathBuf, io::Result<FileType>>,
+    dir_entries: HashMap<PathBuf, io::Result<Vec<PathBuf>>>,
+}
 
-    struct FsState {
-        created_dirs: Vec<PathBuf>,
-        create_dir_result: io::Result<()>, // 默认 Ok
-        metadata: HashMap<PathBuf, io::Result<FileType>>,
-        dir_entries: HashMap<PathBuf, io::Result<Vec<PathBuf>>>,
-    }
-
-    impl Default for FsState {
-        fn default() -> Self {
-            Self {
-                created_dirs: vec![],
-                create_dir_result: Ok(()),
-                metadata: HashMap::new(),
-                dir_entries: HashMap::new(),
-            }
+impl Default for FsState {
+    fn default() -> Self {
+        Self {
+            created_dirs: vec![],
+            create_dir_result: Ok(()),
+            metadata: HashMap::new(),
+            dir_entries: HashMap::new(),
         }
     }
+}
 
-    impl MockFileSystem {
-        pub fn set_metadata(&self, path: impl Into<PathBuf>, result: io::Result<FileType>) {
-            self.state
-                .lock()
-                .unwrap()
-                .metadata
-                .insert(path.into(), result);
-        }
+impl MockFileSystem {
+    pub fn set_metadata(&self, path: impl Into<PathBuf>, result: io::Result<FileType>) {
+        self.state
+            .lock()
+            .unwrap()
+            .metadata
+            .insert(path.into(), result);
+    }
 
-        pub fn set_dir_entries(&self, dir: impl Into<PathBuf>, result: io::Result<Vec<PathBuf>>) {
-            self.state
-                .lock()
-                .unwrap()
-                .dir_entries
-                .insert(dir.into(), result);
-        }
+    pub fn set_dir_entries(&self, dir: impl Into<PathBuf>, result: io::Result<Vec<PathBuf>>) {
+        self.state
+            .lock()
+            .unwrap()
+            .dir_entries
+            .insert(dir.into(), result);
+    }
 
-        /// 设置 `create_dir_all` 的失败结果（只生效一次，之后恢复 Ok）
-        pub fn set_create_dir_err(&self, kind: io::ErrorKind, msg: &'static str) {
-            let mut s = self.state.lock().unwrap();
-            s.create_dir_result = Err(io::Error::new(kind, msg));
-        }
+    /// 设置 `create_dir_all` 的失败结果（只生效一次，之后恢复 Ok）
+    pub fn set_create_dir_err(&self, kind: io::ErrorKind, msg: &'static str) {
+        let mut s = self.state.lock().unwrap();
+        s.create_dir_result = Err(io::Error::new(kind, msg));
+    }
 
-        /// 暴露已创建的目录列表（测试断言用）
-        pub fn created_dirs(&self) -> Vec<PathBuf> {
-            self.state.lock().unwrap().created_dirs.clone()
+    /// 暴露已创建的目录列表（测试断言用）
+    pub fn created_dirs(&self) -> Vec<PathBuf> {
+        self.state.lock().unwrap().created_dirs.clone()
+    }
+}
+
+impl FileSystem for MockFileSystem {
+    fn symlink_metadata(&self, path: &Path) -> io::Result<FileType> {
+        let s = self.state.lock().unwrap();
+        match s.metadata.get(path) {
+            Some(Ok(ft)) => Ok(ft.clone()), // FileType 可 Copy
+            Some(Err(e)) => Err(io::Error::new(e.kind(), e.to_string())),
+            None => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Path not found: {}", path.display()),
+            )),
         }
     }
 
-    impl FileSystem for MockFileSystem {
-        fn symlink_metadata(&self, path: &Path) -> io::Result<FileType> {
-            let s = self.state.lock().unwrap();
-            match s.metadata.get(path) {
-                Some(Ok(ft)) => Ok(ft.clone()), // FileType 可 Copy
-                Some(Err(e)) => Err(io::Error::new(e.kind(), e.to_string())),
-                None => Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("Path not found: {}", path.display()),
-                )),
-            }
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
+        let s = self.state.lock().unwrap();
+        match s.dir_entries.get(path) {
+            Some(Ok(entries)) => Ok(entries.clone()),
+            Some(Err(e)) => Err(io::Error::new(e.kind(), e.to_string())),
+            None => Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Directory not found: {}", path.display()),
+            )),
         }
+    }
 
-        fn read_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
-            let s = self.state.lock().unwrap();
-            match s.dir_entries.get(path) {
-                Some(Ok(entries)) => Ok(entries.clone()),
-                Some(Err(e)) => Err(io::Error::new(e.kind(), e.to_string())),
-                None => Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("Directory not found: {}", path.display()),
-                )),
-            }
-        }
+    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        let mut s = self.state.lock().unwrap();
+        s.created_dirs.push(path.to_path_buf());
+        // 取出当前结果，如果为 Err，则消费一次并恢复为 Ok
+        mem::replace(&mut s.create_dir_result, Ok(()))
+    }
 
-        fn create_dir_all(&self, path: &Path) -> io::Result<()> {
-            let mut s = self.state.lock().unwrap();
-            s.created_dirs.push(path.to_path_buf());
-            // 取出当前结果，如果为 Err，则消费一次并恢复为 Ok
-            mem::replace(&mut s.create_dir_result, Ok(()))
-        }
-
-        fn rename(&self, _from: &Path, _to: &Path) -> io::Result<()> {
-            Ok(())
-        }
+    fn rename(&self, _from: &Path, _to: &Path) -> io::Result<()> {
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infra::test_utils::MockFileSystem;
     use std::io;
     use tempfile::tempdir;
 
