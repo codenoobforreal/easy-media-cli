@@ -17,7 +17,7 @@ use crate::{
         PROGRESS_ARGS, SVTAV1_PARAMS_ARGS,
     },
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::Local;
 use std::{
     cmp::min,
@@ -57,9 +57,15 @@ impl VideoEncoder {
         let input = input.into();
         let output = Self::build_output_path(&input, output_dir)?;
 
-        let metadata_fps = metadata
-            .fps()
-            .with_context(|| "Failed to retrive metadata fps".to_owned())?;
+        let metadata_fps = metadata.fps().ok_or_else(|| {
+            if metadata.video_streams.is_empty() {
+                anyhow!("Input file does not contain a video stream")
+            } else {
+                anyhow!(
+                    "Video stream exists but frame rate (FPS) could not be determined from metadata"
+                )
+            }
+        })?;
 
         // 如果原视频帧率高于配置的最大帧率，则启用帧率限制
         let fps = if metadata_fps > f64::from(fps) {
@@ -178,12 +184,12 @@ impl VideoEncoder {
     ) -> Result<(u8, Option<u16>, Option<u16>)> {
         let source_pixels = metadata
             .pixels()
-            .with_context(|| "Failed to retrive pixels from metadata".to_owned())?;
+            .ok_or_else(|| anyhow!("Input file does not contain a video stream"))?;
 
-        let source_resolution = (metadata
+        let source_resolution = metadata
             .resolution()
-            .with_context(|| "Failed to retrive metadata resolution".to_owned())?)
-        .with_context(|| "Metadata resolution is unknown")?;
+            .ok_or_else(|| anyhow!("Could not determine video resolution from metadata"))?
+            .map_err(|e| anyhow!("Invalid resolution: {e}"))?;
 
         let (effective_resolution, do_scale) = if source_pixels >= target_resolution.pixels() {
             (target_resolution, true)
@@ -467,7 +473,7 @@ mod tests {
         let result = VideoEncoder::compute_scaling_params(target, &metadata);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("Failed to retrive pixels"));
+        assert_debug_snapshot!(err,@r#""Input file does not contain a video stream""#);
     }
 
     #[test]
@@ -562,7 +568,7 @@ mod tests {
         let result = VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Hd), 30, &metadata);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert_debug_snapshot!(err, @r#""Failed to retrive metadata fps""#);
+        assert_debug_snapshot!(err, @r#""Video stream exists but frame rate (FPS) could not be determined from metadata""#);
     }
 
     #[test]
@@ -571,7 +577,7 @@ mod tests {
         let result = VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Hd), 30, &metadata);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert_debug_snapshot!(err, @r#""Failed to retrive metadata fps""#);
+        assert_debug_snapshot!(err, @r#""Input file does not contain a video stream""#);
     }
 
     #[test]
