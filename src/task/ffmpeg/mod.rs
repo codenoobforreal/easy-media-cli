@@ -12,7 +12,7 @@ pub use wrapper::{FfmpegTaskWrapper, read_progress};
 
 pub trait FfmpegTask: Send + Sync {
     fn id(&self) -> usize;
-    fn name(&self) -> Option<&str>;
+    fn name(&self) -> &str;
     fn input(&self) -> &Path;
     fn output(&self) -> Option<&Path>;
     fn build_args(&self) -> Vec<OsString>;

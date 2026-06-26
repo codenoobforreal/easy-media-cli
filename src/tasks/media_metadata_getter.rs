@@ -8,7 +8,7 @@ use crate::{
 use anyhow::{Result, anyhow};
 use serde_json::from_slice;
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -16,14 +16,23 @@ use std::{
 #[derive(Clone)]
 pub struct MediaMetadataGetter {
     id: usize,
+    name: String,
     input: PathBuf,
     event_bus: Arc<dyn EventBus>,
 }
 
 impl MediaMetadataGetter {
     pub fn new(id: usize, input: PathBuf, event_bus: Arc<dyn EventBus>) -> Self {
+        let name = input
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map_or("Retrive metadata".to_string(), |s| {
+                format!("Retrive metadata: {s}")
+            });
+
         Self {
             id,
+            name,
             input,
             event_bus,
         }
@@ -35,8 +44,8 @@ impl FfmpegTask for MediaMetadataGetter {
         self.id
     }
 
-    fn name(&self) -> Option<&str> {
-        self.input.file_stem().and_then(|s| s.to_str())
+    fn name(&self) -> &str {
+        &self.name
     }
 
     fn input(&self) -> &Path {
@@ -56,7 +65,7 @@ impl FfmpegTask for MediaMetadataGetter {
         args
     }
 
-    fn file_name(&self) -> Option<&std::ffi::OsStr> {
+    fn file_name(&self) -> Option<&OsStr> {
         self.input.file_name()
     }
 

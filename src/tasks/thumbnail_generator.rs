@@ -14,6 +14,7 @@ use std::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThumbnailGenerator {
     id: usize,
+    name: String,
     input: PathBuf,
     output: PathBuf,
     scene_threshold: u8,
@@ -30,8 +31,17 @@ impl ThumbnailGenerator {
     ) -> Result<Self> {
         let input = input.into();
         let output = Self::build_output_path(&input, output_dir)?;
+
+        let name = input
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map_or("Generate thumbnail".to_string(), |s| {
+                format!("Generate thumbnail: {s}")
+            });
+
         Ok(Self {
             id,
+            name,
             input,
             output,
             scene_threshold,
@@ -113,8 +123,8 @@ impl FfmpegTask for ThumbnailGenerator {
         self.id
     }
 
-    fn name(&self) -> Option<&str> {
-        self.input.file_stem().and_then(|s| s.to_str())
+    fn name(&self) -> &str {
+        &self.name
     }
 
     fn input(&self) -> &Path {
@@ -245,7 +255,7 @@ mod tests {
         #[test]
         fn name_returns_file_stem() {
             let task = ThumbnailGenerator::new(1, "/videos/demo.mp4", None, 5, None).unwrap();
-            assert_eq!(task.name(), Some("demo"));
+            assert_debug_snapshot!(task.name(), @r#""Generate thumbnail: demo""#);
         }
 
         #[test]

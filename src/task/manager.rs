@@ -60,7 +60,7 @@ impl TaskManager {
             }
 
             let id = task.id();
-            let task_name = task.name().map_or(format!("Task-{id}"), str::to_owned);
+            let task_name = task.name();
             let task_metadata = TaskMetadata::builder().id(id).name(task_name).build();
             self.event_bus.publish(Event::TaskStarted {
                 metadata: task_metadata,
@@ -152,7 +152,7 @@ mod tests {
     fn single_success_task_full_event_flow() {
         let bus = Arc::new(MockEventBus::default());
         let mgr = TaskManager::new(bus.clone());
-        let mock_task = MockTask::new(1, Some("transcode_01"));
+        let mock_task = MockTask::new(1, "transcode_01");
         let tasks: &[Arc<dyn Task>] = &[Arc::new(mock_task.clone())];
         mgr.run_all(tasks).unwrap();
         // 验证任务确实执行
@@ -178,7 +178,7 @@ mod tests {
     fn single_failed_task_emit_failed_event_and_aggregate_error() {
         let bus = Arc::new(MockEventBus::default());
         let mgr = TaskManager::new(bus.clone());
-        let mock_task = MockTask::new(2, Some("corrupt_file"));
+        let mock_task = MockTask::new(2, "corrupt_file");
         mock_task.set_fail("read input stream failed");
         let tasks: &[Arc<dyn Task>] = &[Arc::new(mock_task.clone())];
         let err = mgr.run_all(tasks).unwrap_err();
@@ -196,10 +196,10 @@ mod tests {
     fn mixed_success_failed_correct_statistics() {
         let bus = Arc::new(MockEventBus::default());
         let mgr = TaskManager::new(bus.clone());
-        let task_ok1 = MockTask::new(1, Some("thumb1"));
-        let task_err = MockTask::new(2, Some("meta_parse"));
+        let task_ok1 = MockTask::new(1, "thumb1");
+        let task_err = MockTask::new(2, "meta_parse");
         task_err.set_fail("ffprobe json parse error");
-        let task_ok2 = MockTask::new(3, Some("thumb2"));
+        let task_ok2 = MockTask::new(3, "thumb2");
         let tasks: Vec<Arc<dyn Task>> =
             vec![Arc::new(task_ok1), Arc::new(task_err), Arc::new(task_ok2)];
         let _err = mgr.run_all(&tasks);
@@ -229,7 +229,7 @@ mod tests {
             event_bus: bus.clone(),
             cancel_token: cancel,
         };
-        let mock_task = MockTask::new(99, Some("never_run"));
+        let mock_task = MockTask::new(99, "never_run");
         let tasks: &[Arc<dyn Task>] = &[Arc::new(mock_task.clone())];
         mgr.run_all(tasks).unwrap();
         // 任务完全未执行
@@ -254,11 +254,11 @@ mod tests {
             event_bus: bus.clone(),
             cancel_token: cancel.clone(),
         };
-        let task1 = MockTask::new(1, Some("first_task"));
+        let task1 = MockTask::new(1, "first_task");
         // 第一个任务执行时触发全局取消
         let cancel_clone = cancel.clone();
         task1.set_on_run(move || cancel_clone.set_cancelled(true));
-        let task2 = MockTask::new(2, Some("second_task"));
+        let task2 = MockTask::new(2, "second_task");
         let tasks: Vec<Arc<dyn Task>> = vec![Arc::new(task1.clone()), Arc::new(task2.clone())];
         mgr.run_all(&tasks).unwrap();
         assert!(task1.was_run());
@@ -282,35 +282,12 @@ mod tests {
     }
 
     #[test]
-    fn nameless_task_generates_placeholder_name_and_runs() {
-        let bus = Arc::new(MockEventBus::default());
-        let mgr = TaskManager::new(bus.clone());
-        let nameless_task = MockTask::new(10, None);
-        let tasks: &[Arc<dyn Task>] = &[Arc::new(nameless_task.clone())];
-        let result = mgr.run_all(tasks);
-        assert!(result.is_ok());
-        assert!(nameless_task.was_run());
-        let events = bus.events();
-        let task_started = events.iter().find_map(|e| {
-            if let Event::TaskStarted { metadata } = e {
-                Some(metadata.clone())
-            } else {
-                None
-            }
-        });
-        assert!(task_started.is_some());
-        let metadata = task_started.unwrap();
-        assert_eq!(metadata.id(), 10);
-        assert_eq!(metadata.name(), "Task-10");
-    }
-
-    #[test]
     fn task_returning_cancelled_publishes_event_and_continues() {
         let bus = Arc::new(MockEventBus::default());
         let mgr = TaskManager::new(bus.clone());
-        let task_cancel = MockTask::new(1, Some("voluntary_cancel"));
+        let task_cancel = MockTask::new(1, "voluntary_cancel");
         task_cancel.set_cancelled();
-        let task_ok = MockTask::new(2, Some("still_runs"));
+        let task_ok = MockTask::new(2, "still_runs");
         let tasks: Vec<Arc<dyn Task>> = vec![Arc::new(task_cancel), Arc::new(task_ok)];
         mgr.run_all(&tasks).unwrap();
         let events = bus.events();

@@ -29,6 +29,7 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VideoEncoder {
     id: usize,
+    name: String,
     input: PathBuf,
     output: PathBuf,
     duration: Duration,
@@ -77,8 +78,14 @@ impl VideoEncoder {
         let (crf, scaled_width, scaled_height) =
             Self::compute_scaling_params(resolution.unwrap_or_default(), metadata)?;
 
+        let name = input
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map_or("Encode video".to_string(), |s| format!("Encode video: {s}"));
+
         Ok(Self {
             id,
+            name,
             input,
             output,
             duration: metadata.duration(),
@@ -259,8 +266,8 @@ impl FfmpegTask for VideoEncoder {
         self.id
     }
 
-    fn name(&self) -> Option<&str> {
-        self.input.file_stem().and_then(|s| s.to_str())
+    fn name(&self) -> &str {
+        &self.name
     }
 
     fn input(&self) -> &Path {

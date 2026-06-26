@@ -45,7 +45,7 @@ impl<T: FfmpegTask> Task for FfmpegTaskWrapper<T> {
         self.inner.id()
     }
 
-    fn name(&self) -> Option<&str> {
+    fn name(&self) -> &str {
         self.inner.name()
     }
 
@@ -408,7 +408,7 @@ mod tests {
     #[allow(clippy::type_complexity)]
     struct MockFfmpegTask {
         id: usize,
-        name: Option<String>,
+        name: String,
         input: PathBuf,
         output: Option<PathBuf>,
         args: Vec<OsString>,
@@ -423,7 +423,7 @@ mod tests {
         fn new(id: usize) -> Self {
             Self {
                 id,
-                name: Some("test".into()),
+                name: "test".into(),
                 input: PathBuf::from("/input/test.mp4"),
                 output: None,
                 args: vec![],
@@ -436,7 +436,7 @@ mod tests {
         }
 
         fn with_name(mut self, name: &str) -> Self {
-            self.name = Some(name.into());
+            self.name = name.into();
             self
         }
 
@@ -482,8 +482,8 @@ mod tests {
             self.id
         }
 
-        fn name(&self) -> Option<&str> {
-            self.name.as_deref()
+        fn name(&self) -> &str {
+            &self.name
         }
 
         fn input(&self) -> &Path {
@@ -532,7 +532,7 @@ mod tests {
         let task = MockFfmpegTask::new(42).with_name("delegated");
         let suite = TestSuite::new(task);
         assert_eq!(suite.wrapper.id(), 42);
-        assert_eq!(suite.wrapper.name(), Some("delegated"));
+        assert_eq!(suite.wrapper.name(), "delegated");
     }
 
     mod streaming {

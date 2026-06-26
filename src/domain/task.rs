@@ -16,7 +16,7 @@ pub enum TaskError {
 
 pub trait Task: Send + Sync {
     fn id(&self) -> usize;
-    fn name(&self) -> Option<&str>;
+    fn name(&self) -> &str;
     fn run(
         &self,
         event_bus: &Arc<dyn EventBus>,
@@ -183,7 +183,7 @@ pub mod test_utils {
 
     pub struct MockTask {
         id: usize,
-        name: Option<String>,
+        name: String,
         run_result: Arc<Mutex<Option<Result<(), TaskError>>>>,
         pub run_called: Arc<Mutex<bool>>,
         #[allow(clippy::type_complexity)]
@@ -194,7 +194,7 @@ pub mod test_utils {
         fn default() -> Self {
             Self {
                 id: 0,
-                name: None,
+                name: String::new(),
                 run_result: Arc::new(Mutex::new(Some(Ok(())))),
                 run_called: Arc::new(Mutex::new(false)),
                 on_run: Arc::new(Mutex::new(None)),
@@ -227,10 +227,10 @@ pub mod test_utils {
     }
 
     impl MockTask {
-        pub fn new(id: usize, name: Option<&str>) -> Self {
+        pub fn new(id: usize, name: &str) -> Self {
             Self {
                 id,
-                name: name.map(str::to_string),
+                name: name.into(),
                 run_result: Arc::new(Mutex::new(Some(Ok(())))),
                 run_called: Arc::new(Mutex::new(false)),
                 on_run: Arc::new(Mutex::new(None)),
@@ -265,8 +265,8 @@ pub mod test_utils {
             self.id
         }
 
-        fn name(&self) -> Option<&str> {
-            self.name.as_deref()
+        fn name(&self) -> &str {
+            &self.name
         }
 
         fn run(
@@ -464,9 +464,9 @@ mod tests {
 
         #[test]
         fn trait_object_works_normally() {
-            let task: Arc<dyn Task> = Arc::new(MockTask::new(10, Some("mock_transcode")));
+            let task: Arc<dyn Task> = Arc::new(MockTask::new(10, "mock_transcode"));
             assert_eq!(task.id(), 10);
-            assert_eq!(task.name(), Some("mock_transcode"));
+            assert_eq!(task.name(), "mock_transcode");
         }
 
         #[test]
@@ -481,7 +481,7 @@ mod tests {
 
         #[test]
         fn run_returns_cancelled_when_set() {
-            let task = MockTask::new(1, Some("cancel_me"));
+            let task = MockTask::new(1, "cancel_me");
             task.set_cancelled();
             let bus: Arc<dyn EventBus> = Arc::new(MockEventBus::default());
             let token = MockCancelToken::default();
