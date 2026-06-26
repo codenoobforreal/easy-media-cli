@@ -2,7 +2,7 @@ use crate::{
     cli::{GlobalConfig, build_task_list, run_tasks_with_ui},
     domain::Fetcher as MetadataFetcher,
     infra::{CapturingCommandRunner, EventBus, FileSystem},
-    task::FfmpegTaskWrapper,
+    task::CommandTaskWrapper,
     tasks::ThumbnailGenerator,
     ui::Renderer,
 };
@@ -47,17 +47,18 @@ pub fn handle_scene_cut_snap(
         args.depth,
         file_system.as_ref(),
         move |task_id, video| {
+            let metadata = metadata_fetcher.fetch_metadata(&video)?;
             let generator = ThumbnailGenerator::new(
                 task_id,
                 video,
                 args.output.as_deref(),
                 args.threshold,
                 args.width,
+                &metadata,
             )?;
-            let wrapped = FfmpegTaskWrapper::new(
+            let wrapped = CommandTaskWrapper::new(
                 generator,
                 command_runner.clone(),
-                metadata_fetcher.clone(),
                 fs_clone.clone(),
                 render_interval,
                 progress_threshold,

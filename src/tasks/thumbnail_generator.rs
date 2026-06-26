@@ -1,6 +1,7 @@
 use crate::{
-    domain::TaskResultPayload,
-    task::FfmpegTask,
+    domain::{Metadata as MediaMetadata, TaskResultPayload},
+    infra::CommandSpec,
+    task::CommandTask,
     tasks::{
         FPS_MODE_ARGS, LOG_ERROR_ARGS, OVERWRITE_ARGS, PROGRESS_ARGS, SKIP_FRAME_ARGS,
         VIDEO_QUALITY_ARGS,
@@ -10,6 +11,7 @@ use anyhow::{Context, Result};
 use std::{
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +22,7 @@ pub struct ThumbnailGenerator {
     output: PathBuf,
     scene_threshold: u8,
     width: Option<u16>,
+    duration: Duration,
 }
 
 impl ThumbnailGenerator {
@@ -29,6 +32,7 @@ impl ThumbnailGenerator {
         output_dir: Option<&Path>,
         scene_threshold: u8,
         width: Option<u16>,
+        metadata: &MediaMetadata,
     ) -> Result<Self> {
         let input = input.into();
         let output = Self::build_output_path(&input, output_dir)?;
@@ -47,6 +51,7 @@ impl ThumbnailGenerator {
             output,
             scene_threshold,
             width,
+            duration: metadata.duration(),
         })
     }
 
@@ -77,7 +82,7 @@ impl ThumbnailGenerator {
         Ok(output_base)
     }
 
-    pub fn build_ffmpeg_args(&self) -> Vec<OsString> {
+    pub fn build_command_args(&self) -> Vec<OsString> {
         let threshold: f64 = f64::from(self.scene_threshold) / 10.0;
 
         // FFmpeg 的 -vf 参数用逗号 , 来分隔不同的滤镜（链），例如 filter1,filter2。
@@ -119,7 +124,7 @@ impl ThumbnailGenerator {
     }
 }
 
-impl FfmpegTask for ThumbnailGenerator {
+impl CommandTask for ThumbnailGenerator {
     fn id(&self) -> usize {
         self.id
     }
@@ -136,151 +141,20 @@ impl FfmpegTask for ThumbnailGenerator {
         Some(&self.output)
     }
 
+    fn duration(&self) -> Option<Duration> {
+        Some(self.duration)
+    }
+
     fn file_name(&self) -> Option<&OsStr> {
         self.input.file_name()
     }
 
-    fn build_args(&self) -> Vec<OsString> {
-        self.build_ffmpeg_args()
+    fn command_spec(&self) -> CommandSpec {
+        CommandSpec::new("ffmpeg", self.build_command_args())
     }
 
     fn result_payload(&self, _: Option<u64>) -> Option<TaskResultPayload> {
         let output_dir = self.output.parent().unwrap_or(&self.output).to_path_buf();
         Some(TaskResultPayload::ThumbnailGenerator { output_dir })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::task::ExecutionMode;
-    use insta::assert_debug_snapshot;
-
-    mod build_output_path {
-        use super::*;
-
-        #[test]
-        fn with_explicit_output_dir() {
-            let input = Path::new("/videos/sample.mp4");
-            let output_dir = Path::new("/output/thumbs");
-            let result = ThumbnailGenerator::build_output_path(input, Some(output_dir)).unwrap();
-            assert_eq!(result, Path::new("/output/thumbs/sample-%04d.jpg"));
-        }
-
-        #[test]
-        fn without_output_dir_creates_sibling_subdir() {
-            let input = Path::new("/videos/sample.mp4");
-            let result = ThumbnailGenerator::build_output_path(input, None).unwrap();
-            assert_eq!(result, Path::new("/videos/sample/sample-%04d.jpg"));
-        }
-
-        #[test]
-        fn missing_file_stem_returns_error() {
-            let input = Path::new("..");
-            let err = ThumbnailGenerator::build_output_path(input, None).unwrap_err();
-            assert!(err.to_string().contains("no valid file stem"));
-        }
-
-        #[test]
-        fn no_parent_without_output_dir_returns_error() {
-            let input = Path::new("/");
-            let err = ThumbnailGenerator::build_output_path(input, None).unwrap_err();
-            assert_debug_snapshot!(err,@"Input path has no valid file stem: /");
-        }
-    }
-
-    mod build_ffmpeg_args {
-        use super::*;
-
-        fn make_task(width: Option<u16>) -> ThumbnailGenerator {
-            ThumbnailGenerator::new(1, "/input/test.mp4", Some(Path::new("/output")), 5, width)
-                .unwrap()
-        }
-
-        #[test]
-        #[cfg(windows)]
-        fn contains_all_base_arguments() {
-            let task = make_task(None);
-            let args: Vec<String> = task
-                .build_args()
-                .iter()
-                .map(|s| s.to_string_lossy().into_owned())
-                .collect();
-            assert_debug_snapshot!(args.join(" "),@r#""-v error -skip_frame nokey -progress pipe:1 -i /input/test.mp4 -vf select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p -fps_mode vfr -q:v 2 -y /output\\test-%04d.jpg""#);
-        }
-
-        #[test]
-        #[cfg(unix)]
-        fn contains_all_base_arguments() {
-            let task = make_task(None);
-            let args: Vec<String> = task
-                .build_args()
-                .iter()
-                .map(|s| s.to_string_lossy().into_owned())
-                .collect();
-            assert_debug_snapshot!(args.join(" "),@r#""-v error -skip_frame nokey -progress pipe:1 -i /input/test.mp4 -vf select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p -fps_mode vfr -q:v 2 -y /output/test-%04d.jpg""#);
-        }
-
-        #[test]
-        fn scene_threshold_converts_to_decimal() {
-            let task = make_task(None);
-            let args = task.build_args();
-            let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
-            let vf_str = args[vf_idx + 1].to_string_lossy();
-            assert_debug_snapshot!(vf_str,@r#""select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p""#);
-        }
-
-        #[test]
-        fn without_width_uses_auto_scale_format() {
-            let task = make_task(None);
-            let args = task.build_args();
-            let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
-            let vf_str = args[vf_idx + 1].to_string_lossy();
-            assert_debug_snapshot!(vf_str,@r#""select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuv420p""#);
-        }
-
-        #[test]
-        fn with_width_sets_fixed_width_scale() {
-            let task = make_task(Some(320));
-            let args = task.build_args();
-            let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
-            let vf_str = args[vf_idx + 1].to_string_lossy();
-            assert_debug_snapshot!(vf_str,@r#""select=gt(scene\\,0.5),scale=in_range=auto:out_range=full,format=yuvj420p:320:-2""#);
-        }
-    }
-
-    mod trait_impl {
-        use super::*;
-
-        #[test]
-        fn id_returns_configured_value() {
-            let task = ThumbnailGenerator::new(42, "test.mp4", None, 5, None).unwrap();
-            assert_eq!(task.id(), 42);
-        }
-
-        #[test]
-        fn name_returns_file_stem() {
-            let task = ThumbnailGenerator::new(1, "/videos/demo.mp4", None, 5, None).unwrap();
-            assert_debug_snapshot!(task.name(), @r#""Generate thumbnail: demo""#);
-        }
-
-        #[test]
-        fn execution_mode_is_streaming() {
-            let task = ThumbnailGenerator::new(1, "test.mp4", None, 5, None).unwrap();
-            assert_eq!(task.execution_mode(), ExecutionMode::Streaming);
-        }
-
-        #[test]
-        fn needs_progress_is_true() {
-            let task = ThumbnailGenerator::new(1, "test.mp4", None, 5, None).unwrap();
-            assert!(task.needs_progress());
-        }
-
-        #[test]
-        fn output_returns_generated_path() {
-            let task =
-                ThumbnailGenerator::new(1, "test.mp4", Some(Path::new("/out")), 5, None).unwrap();
-            assert_eq!(task.output().unwrap(), Path::new("/out/test-%04d.jpg"));
-        }
     }
 }

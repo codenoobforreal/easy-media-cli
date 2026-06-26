@@ -1,35 +1,29 @@
-//! `FFmpeg` 任务通用执行框架
+//! 命令调用任务通用执行框架
 
 mod wrapper;
 
+use crate::{domain::TaskResultPayload, infra::CommandSpec};
 use anyhow::Result;
-use std::{
-    ffi::{OsStr, OsString},
-    path::Path,
-    time::Duration,
-};
-pub use wrapper::{FfmpegTaskWrapper, read_progress};
+use std::{ffi::OsStr, path::Path, time::Duration};
+pub use wrapper::{CommandTaskWrapper, read_progress};
 
-use crate::domain::TaskResultPayload;
-
-pub trait FfmpegTask: Send + Sync {
+pub trait CommandTask: Send + Sync {
     fn id(&self) -> usize;
     fn name(&self) -> &str;
     fn input(&self) -> &Path;
     fn output(&self) -> Option<&Path>;
-    fn build_args(&self) -> Vec<OsString>;
     fn file_name(&self) -> Option<&OsStr>;
-
     /// 是否需要解析进度并发布事件，默认开启
     fn needs_progress(&self) -> bool {
         true
     }
 
+    fn command_spec(&self) -> CommandSpec;
+    // fn build_args(&self) -> Vec<OsString>;
     /// 任务执行模式，默认流式执行
     fn execution_mode(&self) -> ExecutionMode {
         ExecutionMode::Streaming
     }
-
     /// 捕获模式下处理命令输出（比如解析 ffprobe JSON），默认空实现
     fn handle_captured_output(
         &self,
@@ -38,12 +32,10 @@ pub trait FfmpegTask: Send + Sync {
     ) -> Result<Option<TaskResultPayload>> {
         Ok(None)
     }
-
     /// 当前任务是否需要提前创建输出目录，根据 output 是否有值判断
     fn needs_output_dir(&self) -> bool {
         self.output().is_some()
     }
-
     fn result_payload(&self, _total_size: Option<u64>) -> Option<TaskResultPayload> {
         None
     }

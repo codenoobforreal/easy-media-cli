@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use std::{
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fmt,
     io::{self, Read},
     process::{Child, Command, ExitStatus, Stdio},
@@ -23,6 +23,21 @@ impl ChildHandle for Child {
 
     fn kill(&mut self) -> io::Result<()> {
         self.kill()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CommandSpec {
+    pub program: OsString,
+    pub args: Vec<OsString>,
+}
+
+impl CommandSpec {
+    pub fn new(program: impl Into<OsString>, args: Vec<OsString>) -> Self {
+        Self {
+            program: program.into(),
+            args,
+        }
     }
 }
 

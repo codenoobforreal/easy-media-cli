@@ -11,8 +11,8 @@ mod metadata_fetcher;
 
 pub use cancel_token::DefaultCancelToken;
 pub use command_runner::{
-    CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, DefaultCommandRunner,
-    StreamingCommandRunnerExt,
+    CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, CommandSpec,
+    DefaultCommandRunner, StreamingCommandRunnerExt,
 };
 pub use event_bus::{DefaultEventBus, EventBus, EventHandler};
 pub use ffmpeg_progress::{FfmpegProgressParser, Progress, ProgressTracker, RawFfmpegProgress};

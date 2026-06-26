@@ -11,7 +11,8 @@
 
 use crate::{
     domain::{Metadata as MediaMetadata, Orientation, Resolution, TaskResultPayload},
-    task::FfmpegTask,
+    infra::CommandSpec,
+    task::CommandTask,
     tasks::{
         CODEC_SVTAV1_ARGS, COPY_AUDIO_ARGS, LOG_ERROR_ARGS, PIX_FMT_10LE_ARGS, PRESET_SVTAV1_ARGS,
         PROGRESS_ARGS, SVTAV1_PARAMS_ARGS,
@@ -137,7 +138,7 @@ impl VideoEncoder {
     ///   - enable-qm=1:qm-min=0:qm-max=15：启用非平坦量化矩阵，根据画面复杂度动态调整各频率系数的量化权重。在低 CRF（高质量）下，可在不损害主观画质的前提下额外压缩 5%~10% 体积；
     ///   - qm-min=0 允许最大程度的非均匀量化，提升高频系数压缩力度
     ///   - qp-scale-compress-strength=1：压缩同一 mini-GOP 内不同时间层之间的 QP 差异。减轻帧间质量波动，使画面观感更一致；保守级别（1）几乎无副作用，不会影响平均画质
-    fn build_ffmpeg_args(&self) -> Vec<OsString> {
+    fn build_command_args(&self) -> Vec<OsString> {
         let mut args: Vec<OsString> = Vec::new();
 
         // 日志 & 进度
@@ -261,7 +262,7 @@ impl VideoEncoder {
     }
 }
 
-impl FfmpegTask for VideoEncoder {
+impl CommandTask for VideoEncoder {
     fn id(&self) -> usize {
         self.id
     }
@@ -282,8 +283,8 @@ impl FfmpegTask for VideoEncoder {
         self.input.file_name()
     }
 
-    fn build_args(&self) -> Vec<OsString> {
-        self.build_ffmpeg_args()
+    fn command_spec(&self) -> CommandSpec {
+        CommandSpec::new("ffmpeg", self.build_command_args())
     }
 
     fn duration(&self) -> Option<Duration> {
@@ -602,7 +603,7 @@ mod tests {
             crf: 25,
             ..VideoEncoder::default()
         };
-        let args = encoder.build_ffmpeg_args();
+        let args = encoder.build_command_args();
         let args_str: Vec<String> = args
             .iter()
             .map(|s| s.to_string_lossy().to_string())
@@ -620,7 +621,7 @@ mod tests {
             scaled_width: Some(1280),
             ..VideoEncoder::default()
         };
-        let args = encoder.build_ffmpeg_args();
+        let args = encoder.build_command_args();
         let args_str: Vec<String> = args
             .iter()
             .map(|s| s.to_string_lossy().to_string())

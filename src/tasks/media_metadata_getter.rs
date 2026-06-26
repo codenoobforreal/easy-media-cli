@@ -1,7 +1,7 @@
 use crate::{
     domain::TaskResultPayload,
-    infra::{FfprobeRawJson, convert_raw_to_metadata},
-    task::{ExecutionMode, FfmpegTask},
+    infra::{CommandSpec, FfprobeRawJson, convert_raw_to_metadata},
+    task::{CommandTask, ExecutionMode},
     tasks::{LOG_ERROR_ARGS, OUTPUT_FORMAT_JSON_ARGS, SHOW_ENTRIES_ARGS},
 };
 use anyhow::{Result, anyhow};
@@ -29,9 +29,18 @@ impl MediaMetadataGetter {
 
         Self { id, name, input }
     }
+
+    fn build_command_args(&self) -> Vec<OsString> {
+        let mut args: Vec<OsString> = Vec::new();
+        args.extend(LOG_ERROR_ARGS.iter().map(OsString::from));
+        args.extend(SHOW_ENTRIES_ARGS.iter().map(OsString::from));
+        args.extend(OUTPUT_FORMAT_JSON_ARGS.iter().map(OsString::from));
+        args.push(OsString::from(&self.input));
+        args
+    }
 }
 
-impl FfmpegTask for MediaMetadataGetter {
+impl CommandTask for MediaMetadataGetter {
     fn id(&self) -> usize {
         self.id
     }
@@ -48,17 +57,12 @@ impl FfmpegTask for MediaMetadataGetter {
         None
     }
 
-    fn build_args(&self) -> Vec<OsString> {
-        let mut args = Vec::new();
-        args.extend(LOG_ERROR_ARGS.iter().map(OsString::from));
-        args.extend(SHOW_ENTRIES_ARGS.iter().map(OsString::from));
-        args.extend(OUTPUT_FORMAT_JSON_ARGS.iter().map(OsString::from));
-        args.push(OsString::from(&self.input));
-        args
-    }
-
     fn file_name(&self) -> Option<&OsStr> {
         self.input.file_name()
+    }
+
+    fn command_spec(&self) -> CommandSpec {
+        CommandSpec::new("ffprobe", self.build_command_args())
     }
 
     fn execution_mode(&self) -> ExecutionMode {
