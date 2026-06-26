@@ -7,8 +7,35 @@ on:
       - "v*"
 
 jobs:
+  check-tag:
+    name: Check Tag Validity
+    runs-on: ubuntu-latest
+    outputs:
+      is_valid: ${{ steps.check.outputs.is_valid }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check if tag is on master
+        id: check
+        shell: bash
+        run: |
+          # 直接利用 git 命令判断 tag 的 commit 是否在 master 历史中
+          if git merge-base --is-ancestor "${{ github.ref_name }}" origin/master; then
+            echo "Tag is on master branch."
+            # 将结果输出给后续 job 使用
+            echo "is_valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag is NOT on master branch. Aborting."
+            echo "is_valid=false" >> $GITHUB_OUTPUT
+          fi
+
   build:
     name: Build and Release
+    needs: check-tag
+    if: needs.check-tag.outputs.is_valid == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -42,22 +69,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0 # 需要完整历史以检查 tag 所在分支
-
-      - name: Check if tag is on master branch
-        run: |
-          TAG_NAME="${{ github.ref_name }}"
-          echo "Checking if tag $TAG_NAME is on master branch..."
-          # 获取 tag 指向的 commit hash
-          TAG_COMMIT=$(git rev-parse "$TAG_NAME^{commit}")
-          # 获取 master 分支最新 commit
-          MASTER_COMMIT=$(git rev-parse origin/master)
-          # 检查 tag commit 是否是 master 分支的祖先（即 master 包含该 commit）
-          if git merge-base --is-ancestor "$TAG_COMMIT" "$MASTER_COMMIT"; then
-            echo "Tag is on master branch."
-          else
-            echo "Tag is NOT on master branch. Release aborted."
-            exit 1
-          fi
 
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1

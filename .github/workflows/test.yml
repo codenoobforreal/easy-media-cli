@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - master
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "benches/**"
 
 jobs:
   test:
