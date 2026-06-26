@@ -110,11 +110,6 @@ impl TaskMetadata {
         self.result = None;
     }
 
-    /// 用于非状态转换场景
-    pub fn set_progress(&mut self, progress: Option<Progress>) {
-        self.progress = progress;
-    }
-
     pub fn set_result(&mut self, result: Option<String>) {
         debug_assert!(
             self.status == Status::Completed,
@@ -399,9 +394,9 @@ mod tests {
             let mut meta = TaskMetadata::default();
             assert!(meta.progress().is_none());
             let prog = sample_progress();
-            meta.set_progress(Some(prog));
+            meta.mark_running(Some(prog));
             assert_eq!(meta.progress().unwrap(), prog);
-            meta.set_progress(None);
+            meta.mark_running(None);
             assert!(meta.progress().is_none());
         }
 
