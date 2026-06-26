@@ -2,12 +2,15 @@
 
 use crate::{
     infra::EventBus,
-    ui::{RENDER_INTERVAL, RenderScheduler, Renderer},
+    ui::{RenderScheduler, Renderer},
 };
 use anyhow::{Result, anyhow};
-use std::sync::{
-    Arc, Mutex, MutexGuard,
-    mpsc::{Receiver, RecvTimeoutError},
+use std::{
+    sync::{
+        Arc, Mutex, MutexGuard,
+        mpsc::{Receiver, RecvTimeoutError},
+    },
+    time::Duration,
 };
 
 /// 跨线程安全包装后的 `UI`，内置事件订阅绑定逻辑
@@ -16,8 +19,15 @@ pub struct SyncUi(Arc<Mutex<RenderScheduler>>);
 
 impl SyncUi {
     /// 创建并自动订阅事件总线，将所有事件自动转发到 `UI`
-    pub fn bind_event_bus(renderer: Box<dyn Renderer>, bus: &dyn EventBus) -> Result<Self> {
-        let inner = Arc::new(Mutex::new(RenderScheduler::with_renderer(renderer)));
+    pub fn bind_event_bus(
+        renderer: Box<dyn Renderer>,
+        bus: &dyn EventBus,
+        render_interval: Duration,
+    ) -> Result<Self> {
+        let inner = Arc::new(Mutex::new(RenderScheduler::with_renderer(
+            renderer,
+            render_interval,
+        )));
         let inner_clone = inner.clone();
         bus.subscribe(Arc::new(move |event| {
             let mut guard = inner_clone
@@ -32,8 +42,9 @@ impl SyncUi {
 
     /// 阻塞主线程，驱动节流渲染，等待任务子线程执行完毕
     pub fn block_on_task_thread_finish_channel(&self, rx: &Receiver<Result<()>>) -> Result<()> {
+        let interval = self.lock()?.render_interval();
         loop {
-            match rx.recv_timeout(RENDER_INTERVAL) {
+            match rx.recv_timeout(interval) {
                 Ok(result) => return result,
 
                 Err(RecvTimeoutError::Timeout) => {
@@ -77,7 +88,7 @@ mod tests {
     fn bind_event_bus_forwards_events_to_inner() {
         let bus = MockEventBus::default();
         let renderer = Box::new(MockRenderer::default());
-        let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
+        let ui = SyncUi::bind_event_bus(renderer, &bus, Duration::ZERO).unwrap();
         bus.publish(Event::TaskStarted {
             metadata: TaskMetadata::builder().id(1).name("task1").build(),
         })
@@ -90,7 +101,7 @@ mod tests {
     fn clone_shares_same_inner_state() {
         let bus = MockEventBus::default();
         let renderer = Box::new(MockRenderer::default());
-        let ui1 = SyncUi::bind_event_bus(renderer, &bus).unwrap();
+        let ui1 = SyncUi::bind_event_bus(renderer, &bus, Duration::ZERO).unwrap();
         let ui2 = ui1.clone();
         bus.publish(Event::TaskStarted {
             metadata: TaskMetadata::builder().id(42).name("task42").build(),
@@ -116,7 +127,7 @@ mod tests {
     fn lock_provides_mutable_access() {
         let bus = MockEventBus::default();
         let renderer = Box::new(MockRenderer::default());
-        let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
+        let ui = SyncUi::bind_event_bus(renderer, &bus, Duration::ZERO).unwrap();
         {
             let mut guard = ui.lock().unwrap();
             guard.push_event(&Event::TaskStarted {
@@ -134,7 +145,7 @@ mod tests {
         let final_calls = Arc::clone(&renderer.final_calls);
         let last_msg = Arc::clone(&renderer.last_msg);
         let renderer = Box::new(renderer);
-        let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
+        let ui = SyncUi::bind_event_bus(renderer, &bus, Duration::ZERO).unwrap();
         ui.render_final(false).unwrap();
         assert_eq!(*final_calls.lock().unwrap(), 1);
         assert_debug_snapshot!(*last_msg.lock().unwrap(),@r#"
@@ -150,7 +161,7 @@ mod tests {
         let renderer = MockRenderer::default();
         let running_calls = Arc::clone(&renderer.running_calls);
         let renderer = Box::new(renderer);
-        let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
+        let ui = SyncUi::bind_event_bus(renderer, &bus, Duration::ZERO).unwrap();
         bus.publish(Event::TaskStarted {
             metadata: TaskMetadata::builder().id(1).name("task1").build(),
         })
@@ -174,7 +185,7 @@ mod tests {
     fn block_on_task_thread_waits_for_success() {
         let bus = MockEventBus::default();
         let renderer = Box::new(MockRenderer::default());
-        let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
+        let ui = SyncUi::bind_event_bus(renderer, &bus, Duration::ZERO).unwrap();
         let (tx, rx) = mpsc::channel::<Result<()>>();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(20));
@@ -188,7 +199,7 @@ mod tests {
     fn block_on_task_thread_propagates_panic_as_error() {
         let bus = MockEventBus::default();
         let renderer = Box::new(MockRenderer::default());
-        let ui = SyncUi::bind_event_bus(renderer, &bus).unwrap();
+        let ui = SyncUi::bind_event_bus(renderer, &bus, Duration::ZERO).unwrap();
         let (_, rx) = mpsc::channel::<Result<()>>();
         thread::spawn(move || {
             panic!("intentional test panic");

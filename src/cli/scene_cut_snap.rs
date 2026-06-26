@@ -1,5 +1,5 @@
 use crate::{
-    cli::{build_task_list, run_tasks_with_ui},
+    cli::{GlobalConfig, build_task_list, run_tasks_with_ui},
     domain::Fetcher as MetadataFetcher,
     infra::{CapturingCommandRunner, EventBus, FileSystem},
     task::FfmpegTaskWrapper,
@@ -8,7 +8,7 @@ use crate::{
 };
 use anyhow::Result;
 use clap::{Args, value_parser};
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 #[derive(Args, Debug)]
 pub struct ScsArgs {
@@ -36,7 +36,10 @@ pub fn handle_scene_cut_snap(
     metadata_fetcher: Arc<dyn MetadataFetcher>,
     file_system: Arc<dyn FileSystem>,
     renderer: Box<dyn Renderer>,
+    global_config: &GlobalConfig,
 ) -> Result<()> {
+    let render_interval = Duration::from_millis(global_config.render_interval_ms);
+    let progress_threshold = global_config.progress_threshold;
     let fs_clone = file_system.clone();
 
     let tasks = build_task_list(
@@ -56,6 +59,8 @@ pub fn handle_scene_cut_snap(
                 command_runner.clone(),
                 metadata_fetcher.clone(),
                 fs_clone.clone(),
+                render_interval,
+                progress_threshold,
             );
             Ok(Arc::new(wrapped))
         },
@@ -63,7 +68,7 @@ pub fn handle_scene_cut_snap(
 
     drop(file_system);
 
-    run_tasks_with_ui(tasks, event_bus, renderer)
+    run_tasks_with_ui(tasks, event_bus, renderer, render_interval)
 }
 
 #[cfg(test)]
@@ -104,6 +109,7 @@ mod tests {
         let runner_trait: Arc<dyn CapturingCommandRunner> = runner.clone();
         let fetcher_trait: Arc<dyn MetadataFetcher> = fetcher.clone();
         let fs_trait: Arc<dyn FileSystem> = fs.clone();
+        let config = GlobalConfig::parser_default();
 
         handle_scene_cut_snap(
             args,
@@ -112,6 +118,7 @@ mod tests {
             fetcher_trait,
             fs_trait,
             renderer,
+            &config,
         )
     }
 

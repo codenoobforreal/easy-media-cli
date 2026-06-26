@@ -9,8 +9,6 @@ pub struct Progress {
 }
 
 impl Progress {
-    const DEFAULT_UPDATE_THRESHOLD: f32 = 1.0;
-
     pub fn new(percentage: f32, elapsed: Duration, eta: Option<Duration>) -> Self {
         Self {
             percentage,
@@ -37,10 +35,6 @@ impl Progress {
             elapsed,
             ffmpeg_progress.eta(total_duration, elapsed),
         )
-    }
-
-    pub fn should_update(&self, previous: &Self) -> bool {
-        self.should_update_with_threshold(previous, Self::DEFAULT_UPDATE_THRESHOLD)
     }
 
     pub fn should_update_with_threshold(&self, previous: &Self, threshold: f32) -> bool {
@@ -123,15 +117,15 @@ mod tests {
         // 差值小于阈值，不更新
         let prev = Progress::new(50.0, Duration::ZERO, None);
         let curr = Progress::new(50.5, Duration::ZERO, None);
-        assert!(!curr.should_update(&prev));
+        assert!(!curr.should_update_with_threshold(&prev, 1.0));
 
         // 差值刚好等于阈值，更新
         let curr = Progress::new(51.0, Duration::ZERO, None);
-        assert!(curr.should_update(&prev));
+        assert!(curr.should_update_with_threshold(&prev, 1.0));
 
         // 差值大于阈值，更新
         let curr = Progress::new(51.1, Duration::ZERO, None);
-        assert!(curr.should_update(&prev));
+        assert!(curr.should_update_with_threshold(&prev, 1.0));
     }
 
     #[test]
@@ -154,22 +148,22 @@ mod tests {
         // 上一次进度为 0 时强制更新
         let prev = Progress::new(0.0, Duration::ZERO, None);
         let curr = Progress::new(0.5, Duration::ZERO, None);
-        assert!(curr.should_update(&prev));
+        assert!(curr.should_update_with_threshold(&prev, 1.0));
 
         // 当前进度为 0 时强制更新
         let prev = Progress::new(5.0, Duration::ZERO, None);
         let curr = Progress::new(0.0, Duration::ZERO, None);
-        assert!(curr.should_update(&prev));
+        assert!(curr.should_update_with_threshold(&prev, 1.0));
 
         // 当前进度为 100% 时强制更新
         let prev = Progress::new(99.5, Duration::ZERO, None);
         let curr = Progress::new(100.0, Duration::ZERO, None);
-        assert!(curr.should_update(&prev));
+        assert!(curr.should_update_with_threshold(&prev, 1.0));
 
         // 进度倒退时不更新
         let prev = Progress::new(50.0, Duration::ZERO, None);
         let curr = Progress::new(48.0, Duration::ZERO, None);
-        assert!(!curr.should_update(&prev));
+        assert!(!curr.should_update_with_threshold(&prev, 1.0));
     }
 
     #[test]

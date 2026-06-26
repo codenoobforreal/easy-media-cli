@@ -8,7 +8,7 @@ use std::{
     path::Path,
     time::Duration,
 };
-pub use wrapper::{FfmpegTaskWrapper, read_progress_impl};
+pub use wrapper::{FfmpegTaskWrapper, read_progress};
 
 pub trait FfmpegTask: Send + Sync {
     fn id(&self) -> usize;

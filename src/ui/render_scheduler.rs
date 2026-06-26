@@ -2,15 +2,12 @@
 
 use crate::{
     domain::Event,
-    ui::{
-        CANCEL_MSG, DefaultRenderer as TerminalRenderer, RENDER_INTERVAL, Renderer, SUCCESS_MSG,
-        TaskStateStore,
-    },
+    ui::{CANCEL_MSG, DefaultRenderer as TerminalRenderer, Renderer, SUCCESS_MSG, TaskStateStore},
 };
 use anyhow::Result;
 use std::{
     io::{stderr, stdout},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 /// UI 渲染调度器：只负责渲染节流、调用渲染后端
@@ -19,13 +16,14 @@ pub struct RenderScheduler {
     state_store: TaskStateStore,
     has_state_update: bool,
     last_render_time: Instant,
+    render_interval: Duration,
 }
 
 impl RenderScheduler {
     /// 默认使用 `TerminalRenderer` 的 `new` 方法
-    pub fn new() -> Self {
+    pub fn new(render_interval: Duration) -> Self {
         let renderer = Box::new(TerminalRenderer::new(stdout(), stderr()));
-        Self::with_renderer(renderer)
+        Self::with_renderer(renderer, render_interval)
     }
 
     /// 推送单个事件，更新本地状态（由同步事件总线回调调用）
@@ -37,8 +35,7 @@ impl RenderScheduler {
     /// 达到间隔且有状态更新时才刷新终端
     pub fn tick_render(&mut self) -> Result<bool> {
         let now = Instant::now();
-
-        if now - self.last_render_time < RENDER_INTERVAL {
+        if now - self.last_render_time < self.render_interval {
             return Ok(false);
         }
 
@@ -67,13 +64,18 @@ impl RenderScheduler {
         self.renderer.render_final(&stats, &task_list, message)
     }
 
-    pub fn with_renderer(renderer: Box<dyn Renderer>) -> Self {
+    pub fn with_renderer(renderer: Box<dyn Renderer>, render_interval: Duration) -> Self {
         Self {
             renderer,
             state_store: TaskStateStore::new(),
             has_state_update: false,
             last_render_time: Instant::now(),
+            render_interval,
         }
+    }
+
+    pub fn render_interval(&self) -> Duration {
+        self.render_interval
     }
 
     #[cfg(test)]
@@ -93,14 +95,14 @@ impl RenderScheduler {
 
 impl Default for RenderScheduler {
     fn default() -> Self {
-        Self::new()
+        Self::new(Duration::ZERO)
     }
 }
 
 #[cfg(test)]
 pub mod test_utils {
     use super::*;
-    use crate::ui::test_utils::MockRenderer;
+    use crate::{cli::GlobalConfig, ui::test_utils::MockRenderer};
     use std::sync::{Arc, Mutex};
 
     /// 构造调度器并返回调用计数句柄
@@ -108,7 +110,11 @@ pub mod test_utils {
         let mock = MockRenderer::default();
         let running = mock.running_calls.clone();
         let final_ = mock.final_calls.clone();
-        let sched = RenderScheduler::with_renderer(Box::new(mock));
+        let config = GlobalConfig::parser_default();
+        let sched = RenderScheduler::with_renderer(
+            Box::new(mock),
+            Duration::from_millis(config.render_interval_ms),
+        );
         (sched, running, final_)
     }
 }

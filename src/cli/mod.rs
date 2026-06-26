@@ -15,21 +15,57 @@ use crate::{
     task::TaskManager,
     ui::{DefaultRenderer, Renderer, SyncUi},
 };
-use anyhow::{Result, bail};
-use clap::{Parser, Subcommand};
+use anyhow::{Result, anyhow, bail};
+use clap::{Parser, Subcommand, value_parser};
 pub use encode_video::{VeArgs, handle_encode_video};
 pub use scene_cut_snap::{ScsArgs, handle_scene_cut_snap};
 use std::{
     path::PathBuf,
     sync::{Arc, mpsc},
     thread,
+    time::Duration,
 };
 
 #[derive(Parser, Debug)]
 #[command(version, propagate_version = true)]
 pub struct Cli {
+    #[command(flatten)]
+    global: GlobalConfig,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Debug, Clone, Parser)]
+pub struct GlobalConfig {
+    /// Render interval in milliseconds
+    #[arg(long, global = true, default_value_t = 100, value_parser = value_parser!(u64).range(1..=10000))]
+    pub render_interval_ms: u64,
+
+    /// Minimum percentage change to trigger a progress update
+    #[arg(long, global = true, default_value_t = 1.0, value_parser = parse_progress_threshold)]
+    pub progress_threshold: f32,
+}
+
+impl GlobalConfig {
+    /// 返回解析的默认值而非 Default trait 的默认值（其不经过 clap）
+    pub fn parser_default() -> Self {
+        Self {
+            render_interval_ms: 100,
+            progress_threshold: 1.0,
+        }
+    }
+}
+
+fn parse_progress_threshold(s: &str) -> Result<f32> {
+    let val = s
+        .parse::<f32>()
+        .map_err(|_| anyhow!("Invalid float: '{s}'"))?;
+    if !(0.1..=10.0).contains(&val) {
+        bail!("progress threshold must be between 0.1 and 10.0, got {val}");
+    }
+
+    Ok(val)
 }
 
 #[derive(Subcommand, Debug)]
@@ -59,6 +95,7 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
             metadata_fetcher,
             file_system,
             terminal_renderer,
+            &cli.global,
         )?,
         Commands::Ve(args) => handle_encode_video(
             args,
@@ -67,6 +104,7 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
             metadata_fetcher,
             file_system,
             terminal_renderer,
+            &cli.global,
         )?,
     }
 
@@ -103,8 +141,9 @@ pub fn run_tasks_with_ui(
     tasks: Vec<Arc<dyn Task>>,
     event_bus: Arc<dyn EventBus>,
     renderer: Box<dyn Renderer>,
+    render_interval: Duration,
 ) -> Result<()> {
-    let sync_ui = SyncUi::bind_event_bus(renderer, event_bus.as_ref())?;
+    let sync_ui = SyncUi::bind_event_bus(renderer, event_bus.as_ref(), render_interval)?;
 
     let task_manager = TaskManager::new(event_bus);
     task_manager.bind_shutdown_listener()?;

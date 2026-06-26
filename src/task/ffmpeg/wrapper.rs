@@ -8,7 +8,6 @@ use crate::{
         FfmpegProgressParser, FileSystem, ProgressTracker, StreamingCommandRunnerExt,
     },
     task::{ExecutionMode, ffmpeg::FfmpegTask},
-    ui::RENDER_INTERVAL,
 };
 use anyhow::{Context, Result, anyhow};
 use std::{
@@ -37,6 +36,8 @@ pub struct FfmpegTaskWrapper<T: FfmpegTask> {
     command_runner: Arc<dyn CapturingCommandRunner>,
     metadata_fetcher: Arc<dyn MetadataFetcher>,
     file_system: Arc<dyn FileSystem>,
+    render_interval: Duration,
+    progress_threshold: f32,
 }
 
 impl<T: FfmpegTask> Task for FfmpegTaskWrapper<T> {
@@ -69,12 +70,16 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         command_runner: Arc<dyn CapturingCommandRunner>,
         metadata_fetcher: Arc<dyn MetadataFetcher>,
         file_system: Arc<dyn FileSystem>,
+        render_interval: Duration,
+        progress_threshold: f32,
     ) -> Self {
         Self {
             inner,
             command_runner,
             metadata_fetcher,
             file_system,
+            render_interval,
+            progress_threshold,
         }
     }
 
@@ -102,10 +107,16 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         };
         let start_time = Instant::now();
 
-        let (mut child_guard, io_handles) =
-            self.spawn_with_io_handlers(event_bus, total_duration, start_time)?;
+        let (mut child_guard, io_handles) = self.spawn_with_io_handlers(
+            event_bus,
+            total_duration,
+            start_time,
+            self.render_interval,
+            self.progress_threshold,
+        )?;
 
-        let exit_status = Self::wait_for_completion(&mut child_guard, cancel_token)?;
+        let exit_status =
+            Self::wait_for_completion(&mut child_guard, cancel_token, self.render_interval)?;
 
         self.finalize_streaming_result(exit_status, io_handles, cancel_token)
     }
@@ -145,6 +156,8 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         event_bus: &Arc<dyn EventBus>,
         total_duration: Duration,
         start_time: Instant,
+        render_interval: Duration,
+        progress_threshold: f32,
     ) -> Result<(ChildGuard, IoThreadHandles)> {
         let args = self.inner.build_args();
         let command_streams = self.command_runner.spawn("ffmpeg", &args)?;
@@ -156,12 +169,14 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         let stdout_handle = if self.inner.needs_progress() {
             let event_bus_clone = event_bus.clone();
             thread::spawn(move || {
-                Self::read_progress(
+                read_progress(
                     id,
                     event_bus_clone.as_ref(),
                     command_streams.stdout,
                     start_time,
                     total_duration,
+                    render_interval,
+                    progress_threshold,
                 )
             })
         } else {
@@ -181,6 +196,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
     fn wait_for_completion(
         child_guard: &mut ChildGuard,
         cancel_token: &dyn CancelToken,
+        render_interval: Duration,
     ) -> Result<ExitStatus> {
         // 配置轮询间隔策略
         const QUICK_CHECKS: u32 = 4;
@@ -202,7 +218,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
             thread::sleep(sleep_duration);
             checks += 1;
             if checks > QUICK_CHECKS {
-                sleep_duration = (sleep_duration * 2).min(RENDER_INTERVAL);
+                sleep_duration = (sleep_duration * 2).min(render_interval);
             }
         }
     }
@@ -259,17 +275,6 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         }
     }
 
-    /// 解析 `stdout` 进度并发布事件（有进度任务用）
-    fn read_progress(
-        id: usize,
-        event_bus: &dyn EventBus,
-        stdout_reader: impl Read,
-        start_time: Instant,
-        total_duration: Duration,
-    ) -> Result<()> {
-        read_progress_impl(id, event_bus, stdout_reader, start_time, total_duration)
-    }
-
     /// 排空 `stdout`，不做处理（无进度任务用，避免管道阻塞）
     fn drain_stdout(mut reader: impl Read) -> Result<()> {
         let mut buf = [0u8; 8 * 1024];
@@ -288,16 +293,19 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
     }
 }
 
-pub fn read_progress_impl(
+/// 解析 `stdout` 进度并发布事件（有进度任务用）
+pub fn read_progress(
     id: usize,
     event_bus: &dyn EventBus,
     stdout_reader: impl Read,
     start_time: Instant,
     total_duration: Duration,
+    render_interval: Duration,
+    progress_threshold: f32,
 ) -> Result<()> {
     let mut buf_reader = BufReader::new(stdout_reader);
     let mut parser = FfmpegProgressParser::default();
-    let mut tracker = ProgressTracker::new(total_duration);
+    let mut tracker = ProgressTracker::new(total_duration, progress_threshold);
     let mut last_publish = Instant::now()
         .checked_sub(Duration::from_millis(200))
         .unwrap_or(Instant::now());
@@ -318,7 +326,7 @@ pub fn read_progress_impl(
         let now = Instant::now();
         let elapsed = now - start_time;
         let time_since_last_publish = now - last_publish;
-        if time_since_last_publish >= RENDER_INTERVAL
+        if time_since_last_publish >= render_interval
             && let Some(progress) = tracker.update(raw_progress, elapsed)
         {
             event_bus.publish(Event::TaskProgress { id, progress })?;
@@ -333,6 +341,7 @@ pub fn read_progress_impl(
 mod tests {
     use super::*;
     use crate::{
+        cli::GlobalConfig,
         domain::Metadata as MediaMetadata,
         infra::{
             MockFileSystem,
@@ -360,13 +369,30 @@ mod tests {
 
     impl<T: FfmpegTask> TestSuite<T> {
         fn new(task: T) -> Self {
+            let config = GlobalConfig::parser_default();
+            dbg!(&config);
+            Self::with_config(
+                task,
+                Duration::from_millis(config.render_interval_ms),
+                config.progress_threshold,
+            )
+        }
+
+        fn with_config(task: T, render_interval: Duration, progress_threshold: f32) -> Self {
             let runner = Arc::new(MockCommandRunner::default());
             let fetcher = Arc::new(MockMetadataFetcher::default());
             let fs = Arc::new(MockFileSystem::default());
             let bus_mock = Arc::new(MockEventBus::default());
             let bus: Arc<dyn EventBus> = bus_mock.clone();
             let cancel = MockCancelToken::default();
-            let wrapper = FfmpegTaskWrapper::new(task, runner.clone(), fetcher.clone(), fs.clone());
+            let wrapper = FfmpegTaskWrapper::new(
+                task,
+                runner.clone(),
+                fetcher.clone(),
+                fs.clone(),
+                render_interval,
+                progress_threshold,
+            );
             Self {
                 wrapper,
                 runner,

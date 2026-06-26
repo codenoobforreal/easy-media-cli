@@ -3,7 +3,7 @@ use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_mai
 use easy_media_cli::{
     domain::Event,
     infra::{EventBus, EventHandler},
-    task::read_progress_impl,
+    task::read_progress,
 };
 use std::{
     fmt::Write,
@@ -162,12 +162,14 @@ fn bench_read_progress(c: &mut Criterion) {
         b.iter_batched(
             || Cursor::new(progress_data.clone()),
             |cursor| {
-                let result = read_progress_impl(
+                let result = read_progress(
                     1, // task id
                     &event_bus,
                     cursor,
                     start_time,
                     total_duration,
+                    Duration::from_millis(100),
+                    1.0,
                 );
                 let _ = black_box(result);
             },
