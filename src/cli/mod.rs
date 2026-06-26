@@ -55,17 +55,17 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
         Commands::Scs(args) => handle_scene_cut_snap(
             args,
             event_bus,
-            &command_runner,
-            &metadata_fetcher,
-            &file_system,
+            command_runner,
+            metadata_fetcher,
+            file_system,
             terminal_renderer,
         )?,
         Commands::Ve(args) => handle_encode_video(
             args,
             event_bus,
-            &command_runner,
-            &metadata_fetcher,
-            &file_system,
+            command_runner,
+            metadata_fetcher,
+            file_system,
             terminal_renderer,
         )?,
     }
@@ -73,36 +73,37 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
     Ok(())
 }
 
-/// CLI 场景下的通用 FFmpeg 批量任务执行骨架（全链路流程组装器）
-///
-/// 负责把「参数解析结果 → 视频收集 → 任务构造 → 调度执行 → 终端 UI 渲染」这条完整的 CLI 命令执行链路串起来，属于典型的「入口层编排逻辑」
-///
-/// # 划分
-/// - task 模块的 TaskManager 是纯通用调度器，只负责「接收任务列表 → 串行执行 → 发布事件」，它完全感知不到 UI 的存在，也不应该感知
-/// - 批量骨架里包含了 SyncUi 初始化、block_on_task_thread_finish_channel 阻塞、render_final 最终渲染等 UI 生命周期逻辑，如果放入 task 模块，会导致任务层反向依赖 UI 层，彻底破坏分层依赖方向
-pub fn run_batch_ffmpeg_task<F>(
+/// 构建任务列表：收集视频并调用任务工厂生成任务
+pub fn build_task_list<F>(
     input: &PathBuf,
     depth: Option<u8>,
-    event_bus: Arc<dyn EventBus>,
-    file_system: &Arc<dyn FileSystem>,
-    renderer: Box<dyn Renderer>,
+    file_system: &dyn FileSystem,
     task_factory: F,
-) -> Result<()>
+) -> Result<Vec<Arc<dyn Task>>>
 where
     F: Fn(usize, PathBuf) -> Result<Arc<dyn Task>>,
 {
     let depth = depth.or(Some(0));
-    let videos = collect_videos(file_system.as_ref(), input, depth)?;
+    let videos = collect_videos(file_system, input, depth)?;
     if videos.is_empty() {
         bail!("no video found in path: \n{}", input.display());
     }
 
-    let mut tasks: Vec<Arc<dyn Task>> = Vec::with_capacity(videos.len());
+    let mut tasks = Vec::with_capacity(videos.len());
     for (idx, video) in videos.into_iter().enumerate() {
         let task_id = idx + 1;
         tasks.push(task_factory(task_id, video)?);
     }
 
+    Ok(tasks)
+}
+
+/// 执行任务列表，驱动 UI 渲染，直到所有任务完成或被取消
+pub fn run_tasks_with_ui(
+    tasks: Vec<Arc<dyn Task>>,
+    event_bus: Arc<dyn EventBus>,
+    renderer: Box<dyn Renderer>,
+) -> Result<()> {
     let sync_ui = SyncUi::bind_event_bus(renderer, event_bus.as_ref())?;
 
     let task_manager = TaskManager::new(event_bus);

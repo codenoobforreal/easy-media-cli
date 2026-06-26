@@ -1,5 +1,5 @@
 use crate::{
-    cli::run_batch_ffmpeg_task,
+    cli::{build_task_list, run_tasks_with_ui},
     domain::{Fetcher as MetadataFetcher, Resolution},
     infra::{CapturingCommandRunner, EventBus, FileSystem},
     task::FfmpegTaskWrapper,
@@ -32,18 +32,18 @@ pub struct VeArgs {
 pub fn handle_encode_video(
     args: &VeArgs,
     event_bus: Arc<dyn EventBus>,
-    command_runner: &Arc<dyn CapturingCommandRunner>,
-    metadata_fetcher: &Arc<dyn MetadataFetcher>,
-    file_system: &Arc<dyn FileSystem>,
+    command_runner: Arc<dyn CapturingCommandRunner>,
+    metadata_fetcher: Arc<dyn MetadataFetcher>,
+    file_system: Arc<dyn FileSystem>,
     renderer: Box<dyn Renderer>,
 ) -> Result<()> {
-    run_batch_ffmpeg_task(
+    let fs_clone = file_system.clone();
+
+    let tasks = build_task_list(
         &args.input,
         args.depth,
-        event_bus,
-        file_system,
-        renderer,
-        |task_id, video| {
+        file_system.as_ref(),
+        move |task_id, video| {
             let metadata = metadata_fetcher.fetch_metadata(&video)?;
             let encoder = VideoEncoder::new(
                 task_id,
@@ -57,11 +57,15 @@ pub fn handle_encode_video(
                 encoder,
                 command_runner.clone(),
                 metadata_fetcher.clone(),
-                file_system.clone(),
+                fs_clone.clone(),
             );
             Ok(Arc::new(wrapped))
         },
-    )
+    )?;
+
+    drop(file_system);
+
+    run_tasks_with_ui(tasks, event_bus, renderer)
 }
 
 #[cfg(test)]
@@ -106,9 +110,9 @@ mod tests {
         handle_encode_video(
             args,
             bus_trait,
-            &runner_trait,
-            &fetcher_trait,
-            &fs_trait,
+            runner_trait,
+            fetcher_trait,
+            fs_trait,
             renderer,
         )
     }

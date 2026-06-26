@@ -1,5 +1,5 @@
 use crate::{
-    cli::run_batch_ffmpeg_task,
+    cli::{build_task_list, run_tasks_with_ui},
     domain::Fetcher as MetadataFetcher,
     infra::{CapturingCommandRunner, EventBus, FileSystem},
     task::FfmpegTaskWrapper,
@@ -32,18 +32,18 @@ pub struct ScsArgs {
 pub fn handle_scene_cut_snap(
     args: &ScsArgs,
     event_bus: Arc<dyn EventBus>,
-    command_runner: &Arc<dyn CapturingCommandRunner>,
-    metadata_fetcher: &Arc<dyn MetadataFetcher>,
-    file_system: &Arc<dyn FileSystem>,
+    command_runner: Arc<dyn CapturingCommandRunner>,
+    metadata_fetcher: Arc<dyn MetadataFetcher>,
+    file_system: Arc<dyn FileSystem>,
     renderer: Box<dyn Renderer>,
 ) -> Result<()> {
-    run_batch_ffmpeg_task(
+    let fs_clone = file_system.clone();
+
+    let tasks = build_task_list(
         &args.input,
         args.depth,
-        event_bus,
-        file_system,
-        renderer,
-        |task_id, video| {
+        file_system.as_ref(),
+        move |task_id, video| {
             let generator = ThumbnailGenerator::new(
                 task_id,
                 video,
@@ -55,11 +55,15 @@ pub fn handle_scene_cut_snap(
                 generator,
                 command_runner.clone(),
                 metadata_fetcher.clone(),
-                file_system.clone(),
+                fs_clone.clone(),
             );
             Ok(Arc::new(wrapped))
         },
-    )
+    )?;
+
+    drop(file_system);
+
+    run_tasks_with_ui(tasks, event_bus, renderer)
 }
 
 #[cfg(test)]
@@ -104,9 +108,9 @@ mod tests {
         handle_scene_cut_snap(
             args,
             bus_trait,
-            &runner_trait,
-            &fetcher_trait,
-            &fs_trait,
+            runner_trait,
+            fetcher_trait,
+            fs_trait,
             renderer,
         )
     }
