@@ -40,15 +40,10 @@ impl TaskStateStore {
                 }
             }
 
-            Event::TaskCompleted { id } => {
+            Event::TaskCompleted { id, payload } => {
                 if let Some(task) = self.tasks.get_mut(id) {
                     task.mark_completed(None);
-                }
-            }
-
-            Event::TaskResult { id, summary } => {
-                if let Some(task) = self.tasks.get_mut(id) {
-                    task.set_result(Some(summary.clone()));
+                    task.set_result(payload.clone());
                 }
             }
 
@@ -261,27 +256,13 @@ mod tests {
         store.handle_event(&Event::TaskStarted {
             metadata: sample_test_metadata_with_id_name(1, "t1"),
         });
-        store.handle_event(&Event::TaskCompleted { id: 1 });
+        store.handle_event(&Event::TaskCompleted {
+            id: 1,
+            payload: None,
+        });
         assert_eq!(
             store.task_list().first().unwrap().1.status(),
             Status::Completed
-        );
-    }
-
-    #[test]
-    fn task_result_sets_summary() {
-        let mut store = TaskStateStore::new();
-        store.handle_event(&Event::TaskStarted {
-            metadata: sample_test_metadata_with_id_name(1, "t1"),
-        });
-        store.handle_event(&Event::TaskCompleted { id: 1 });
-        store.handle_event(&Event::TaskResult {
-            id: 1,
-            summary: "output.mp4".into(),
-        });
-        assert_eq!(
-            store.task_list().first().unwrap().1.result().unwrap(),
-            "output.mp4"
         );
     }
 
@@ -370,7 +351,10 @@ mod tests {
             id: 1,
             progress: sample_progress(),
         });
-        store.handle_event(&Event::TaskCompleted { id: 2 });
+        store.handle_event(&Event::TaskCompleted {
+            id: 2,
+            payload: None,
+        });
         store.handle_event(&Event::TaskFailed {
             id: 3,
             error: "err".into(),
@@ -410,7 +394,10 @@ mod tests {
         store.handle_event(&Event::TaskStarted {
             metadata: sample_test_metadata_with_id_name(1, "t1"),
         });
-        store.handle_event(&Event::TaskCompleted { id: 1 });
+        store.handle_event(&Event::TaskCompleted {
+            id: 1,
+            payload: None,
+        });
         let stats = store.get_final_stats();
         assert_debug_snapshot!(stats,@"
         Stats {

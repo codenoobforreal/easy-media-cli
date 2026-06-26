@@ -1,14 +1,14 @@
 //! 跨领域通用工具
 
 mod error;
+mod format;
 mod media_scan;
 mod parser;
-mod time;
 
 pub use error::join_errors_with_summary;
+pub use format::{UnitSystem, format_duration_all, human_readable_size};
 pub use media_scan::{collect_videos, is_video_file};
 pub use parser::parse_float_str;
-pub use time::format_duration;
 
 /// 相对误差浮点数相等判断，`rel_tol`：允许相对误差（如 0.001 = 0.1%）
 #[cfg(test)]

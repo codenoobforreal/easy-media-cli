@@ -2,7 +2,7 @@
 
 use crate::{
     common::join_errors_with_summary,
-    domain::{CancelToken, Event, Fetcher as MetadataFetcher, Task, TaskError},
+    domain::{CancelToken, Event, Fetcher as MetadataFetcher, Task, TaskError, TaskResultPayload},
     infra::{
         CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, EventBus,
         FfmpegProgressParser, FileSystem, ProgressTracker, StreamingCommandRunnerExt,
@@ -22,7 +22,7 @@ use std::{
 /// - 脱离 `FFmpeg` 视频任务执行场景，这个结构体没有任何复用价值，目前暂时放置在这里
 /// - 未来有多场景复用的需要，可以在 `task/ffmpeg/mod.rs` 内部定义为 `pub(crate) struct IoThreadHandles`，仅整个 `ffmpeg` 任务子模块内部共享
 struct IoThreadHandles {
-    stdout: thread::JoinHandle<Result<()>>,
+    stdout: thread::JoinHandle<Result<Option<u64>>>,
     stderr: thread::JoinHandle<Result<Vec<u8>>>,
 }
 
@@ -53,14 +53,21 @@ impl<T: FfmpegTask> Task for FfmpegTaskWrapper<T> {
         &self,
         event_bus: &Arc<dyn EventBus>,
         cancel_token: &dyn CancelToken,
-    ) -> Result<(), TaskError> {
+    ) -> Result<Option<TaskResultPayload>, TaskError> {
         if cancel_token.is_cancelled() {
             return Err(TaskError::Cancelled);
         }
+
         match self.inner.execution_mode() {
             ExecutionMode::Streaming => self.run_streaming_mode(event_bus, cancel_token),
             ExecutionMode::Capturing => self.run_capturing_mode(cancel_token),
         }
+
+        // if result.is_ok() {
+        //     return Ok(self.inner.result_payload());
+        // }
+
+        // result.map(|_| None)
     }
 }
 
@@ -87,7 +94,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         &self,
         event_bus: &Arc<dyn EventBus>,
         cancel_token: &dyn CancelToken,
-    ) -> Result<(), TaskError> {
+    ) -> Result<Option<TaskResultPayload>, TaskError> {
         if self.inner.needs_output_dir() {
             let output = self.inner.output();
             let output_dir = output
@@ -117,11 +124,15 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
 
         let exit_status =
             Self::wait_for_completion(&mut child_guard, cancel_token, self.render_interval)?;
+        let total_size = self.finalize_streaming_result(exit_status, io_handles, cancel_token)?;
 
-        self.finalize_streaming_result(exit_status, io_handles, cancel_token)
+        Ok(self.inner.result_payload(total_size))
     }
 
-    fn run_capturing_mode(&self, cancel_token: &dyn CancelToken) -> Result<(), TaskError> {
+    fn run_capturing_mode(
+        &self,
+        cancel_token: &dyn CancelToken,
+    ) -> Result<Option<TaskResultPayload>, TaskError> {
         // 前置检查：启动前先判断是否已取消
         if cancel_token.is_cancelled() {
             return Err(TaskError::Cancelled);
@@ -135,9 +146,12 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
             return Err(TaskError::Cancelled);
         }
 
-        // 调用业务任务的输出处理钩子（比如解析 ffprobe JSON）
-        self.inner
-            .handle_captured_output(&output.stdout, &output.stderr)?;
+        if let Some(payload) = self
+            .inner
+            .handle_captured_output(&output.stdout, &output.stderr)?
+        {
+            return Ok(Some(payload));
+        }
 
         if !output.status.success() {
             let err = match output.status.code() {
@@ -147,7 +161,8 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
             return Err(TaskError::Failed(err));
         }
 
-        Ok(())
+        // 如果捕获模式任务还需要更多数据（比如文件大小），可以在这里调用 result_payload。
+        Ok(None)
     }
 
     /// 启动 `FFmpeg` 子进程，并根据配置启动对应的 `IO` 处理线程
@@ -180,7 +195,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
                 )
             })
         } else {
-            thread::spawn(move || Self::drain_stdout(command_streams.stdout))
+            thread::spawn(move || Self::drain_stdout(command_streams.stdout).and(Ok(None)))
         };
 
         Ok((
@@ -229,7 +244,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         exit_status: ExitStatus,
         io_handles: IoThreadHandles,
         cancel_token: &dyn CancelToken,
-    ) -> Result<(), TaskError> {
+    ) -> Result<Option<u64>, TaskError> {
         let stdout_res = io_handles
             .stdout
             .join()
@@ -244,7 +259,13 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         }
 
         let mut errors = Vec::new();
-        errors.extend(stdout_res.err());
+        let output_size = match stdout_res {
+            Ok(size) => size,
+            Err(e) => {
+                errors.push(e);
+                None
+            }
+        };
         let stderr_bytes = match stderr_res {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -266,7 +287,7 @@ impl<T: FfmpegTask> FfmpegTaskWrapper<T> {
         }
 
         if errors.is_empty() {
-            Ok(())
+            Ok(output_size)
         } else {
             let summary = format!("Task {} failed with {} errors", self.id(), errors.len());
             Err(TaskError::Failed(join_errors_with_summary(
@@ -302,15 +323,16 @@ pub fn read_progress(
     total_duration: Duration,
     render_interval: Duration,
     progress_threshold: f32,
-) -> Result<()> {
+) -> Result<Option<u64>> {
     let mut buf_reader = BufReader::new(stdout_reader);
     let mut parser = FfmpegProgressParser::default();
     let mut tracker = ProgressTracker::new(total_duration, progress_threshold);
+    let mut last_total_size = None;
     let mut last_publish = Instant::now()
         .checked_sub(Duration::from_millis(200))
         .unwrap_or(Instant::now());
-    let mut line = String::new();
 
+    let mut line = String::new();
     loop {
         line.clear();
         let bytes_read = buf_reader.read_line(&mut line)?;
@@ -331,10 +353,11 @@ pub fn read_progress(
         {
             event_bus.publish(Event::TaskProgress { id, progress })?;
             last_publish = now;
+            last_total_size = parser.total_size();
         }
     }
 
-    Ok(())
+    Ok(last_total_size)
 }
 
 #[cfg(test)]
@@ -416,7 +439,8 @@ mod tests {
         execution_mode: ExecutionMode,
         duration: Option<Duration>,
         needs_output_dir: bool,
-        captured_output_handler: Option<Box<dyn Fn(&[u8], &[u8]) -> Result<()> + Send + Sync>>,
+        captured_output_handler:
+            Option<Box<dyn Fn(&[u8], &[u8]) -> Result<Option<TaskResultPayload>> + Send + Sync>>,
     }
 
     impl MockFfmpegTask {
@@ -470,7 +494,7 @@ mod tests {
         #[allow(dead_code)]
         fn with_captured_handler(
             mut self,
-            handler: impl Fn(&[u8], &[u8]) -> Result<()> + Send + Sync + 'static,
+            handler: impl Fn(&[u8], &[u8]) -> Result<Option<TaskResultPayload>> + Send + Sync + 'static,
         ) -> Self {
             self.captured_output_handler = Some(Box::new(handler));
             self
@@ -518,11 +542,15 @@ mod tests {
             self.needs_output_dir
         }
 
-        fn handle_captured_output(&self, stdout: &[u8], stderr: &[u8]) -> Result<()> {
+        fn handle_captured_output(
+            &self,
+            stdout: &[u8],
+            stderr: &[u8],
+        ) -> Result<Option<TaskResultPayload>> {
             if let Some(ref handler) = self.captured_output_handler {
                 handler(stdout, stderr)
             } else {
-                Ok(())
+                Ok(None)
             }
         }
     }

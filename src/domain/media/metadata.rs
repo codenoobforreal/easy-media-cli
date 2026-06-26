@@ -1,6 +1,9 @@
-use crate::domain::Resolution;
+use crate::{
+    common::{format_duration_all, human_readable_size},
+    domain::Resolution,
+};
 use anyhow::{Result, anyhow};
-use std::time::Duration;
+use std::{fmt, time::Duration};
 
 /// 媒体元数据
 #[derive(Debug, Clone, Default)]
@@ -52,6 +55,40 @@ impl Metadata {
     /// 平均帧率
     pub fn fps(&self) -> Option<f64> {
         self.video_streams.first().and_then(|s| s.avg_frame_rate)
+    }
+}
+
+impl fmt::Display for Metadata {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // 容器
+        writeln!(f, "Container: {}", self.format.name)?;
+        // 时长
+        let dur = self.duration();
+        writeln!(f, "Duration: {}", format_duration_all(dur))?;
+        // 大小
+        writeln!(f, "Size: {}", human_readable_size(self.format.size))?;
+
+        // 视频流
+        writeln!(f, "Video streams: {}", self.video_streams.len())?;
+        if let Some(v) = self.video_streams.first() {
+            writeln!(f, "  Codec: {}", v.codec_name)?;
+            writeln!(f, "  Resolution: {}x{}", v.width, v.height)?;
+            if let Some(fps) = v.avg_frame_rate {
+                writeln!(f, "  Frame rate: {fps:.2} fps")?;
+            } else {
+                writeln!(f, "  Frame rate: N/A")?;
+            }
+        }
+
+        // 音频流
+        writeln!(f, "Audio streams: {}", self.audio_streams.len())?;
+        if let Some(a) = self.audio_streams.first() {
+            writeln!(f, "  Codec: {}", a.codec_name)?;
+            writeln!(f, "  Sample rate: {} Hz", a.sample_rate)?;
+            writeln!(f, "  Channels: {} ({})", a.channels, a.channel_layout)?;
+        }
+
+        Ok(())
     }
 }
 

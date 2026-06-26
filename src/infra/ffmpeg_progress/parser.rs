@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 pub struct FfmpegProgressParser {
     out_time_ms: Option<u64>,
     speed: Option<f32>,
+    total_size: Option<u64>,
 }
 
 impl FfmpegProgressParser {
-    /// 接收一行 `FFmpeg` 进度输出，并返回从中解析出的原始进度数据（前提是该行包含 `progress` 字样且所有必须字段均已包含）
     pub fn feed_line(&mut self, line: &str) -> Result<Option<RawFfmpegProgress>> {
         let trim_line = line.trim();
         if trim_line.is_empty() {
@@ -21,10 +21,19 @@ impl FfmpegProgressParser {
         };
 
         match key {
+            "total_size" => {
+                self.total_size = Some(
+                    value
+                        .parse()
+                        .with_context(|| "Failed to parse total_size")?,
+                );
+                Ok(None)
+            }
+
             "out_time_ms" => {
                 self.out_time_ms = Some(
                     value
-                        .parse::<u64>()
+                        .parse()
                         .with_context(|| format!("Failed to parse out_time_ms: {value}"))?,
                 );
                 Ok(None)
@@ -36,7 +45,7 @@ impl FfmpegProgressParser {
                         .trim()
                         .strip_suffix('x')
                         .with_context(|| format!("Failed to parse speed: {value}"))?
-                        .parse::<f32>()
+                        .parse()
                         .with_context(|| format!("Failed to parse speed value: {value}"))?,
                 );
                 Ok(None)
@@ -57,6 +66,10 @@ impl FfmpegProgressParser {
 
             _ => Ok(None),
         }
+    }
+
+    pub fn total_size(&self) -> Option<u64> {
+        self.total_size
     }
 }
 

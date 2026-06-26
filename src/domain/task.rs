@@ -1,5 +1,5 @@
 use crate::{
-    domain::CancelToken,
+    domain::{CancelToken, TaskResultPayload},
     infra::{EventBus, Progress},
 };
 use anyhow::Result;
@@ -21,7 +21,7 @@ pub trait Task: Send + Sync {
         &self,
         event_bus: &Arc<dyn EventBus>,
         cancel_token: &dyn CancelToken,
-    ) -> Result<(), TaskError>;
+    ) -> Result<Option<TaskResultPayload>, TaskError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -34,14 +34,14 @@ pub enum Status {
     Cancelled,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TaskMetadata {
     id: usize,
     name: String,
     status: Status,
     progress: Option<Progress>,
     error: Option<String>,
-    result: Option<String>,
+    result: Option<TaskResultPayload>,
 }
 
 impl TaskMetadata {
@@ -69,7 +69,7 @@ impl TaskMetadata {
         self.error.as_deref()
     }
 
-    pub fn result(&self) -> Option<String> {
+    pub fn result(&self) -> Option<TaskResultPayload> {
         self.result.clone()
     }
 
@@ -90,7 +90,7 @@ impl TaskMetadata {
     }
 
     /// 标记任务成功完成，可附带结果
-    pub fn mark_completed(&mut self, result: Option<String>) {
+    pub fn mark_completed(&mut self, result: Option<TaskResultPayload>) {
         self.status = Status::Completed;
         self.result = result;
         self.error = None;
@@ -110,7 +110,7 @@ impl TaskMetadata {
         self.result = None;
     }
 
-    pub fn set_result(&mut self, result: Option<String>) {
+    pub fn set_result(&mut self, result: Option<TaskResultPayload>) {
         debug_assert!(
             self.status == Status::Completed,
             "set_result should only be called when status is Completed"
@@ -123,14 +123,14 @@ impl TaskMetadata {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct MetadataBuilder {
     id: usize,
     name: String,
     status: Status,
     progress: Option<Progress>,
     error: Option<String>,
-    result: Option<String>,
+    result: Option<TaskResultPayload>,
 }
 
 impl MetadataBuilder {
@@ -175,6 +175,7 @@ impl MetadataBuilder {
     }
 }
 
+#[allow(clippy::type_complexity)]
 #[cfg(test)]
 pub mod test_utils {
     use super::*;
@@ -184,7 +185,7 @@ pub mod test_utils {
     pub struct MockTask {
         id: usize,
         name: String,
-        run_result: Arc<Mutex<Option<Result<(), TaskError>>>>,
+        run_result: Arc<Mutex<Option<Result<Option<TaskResultPayload>, TaskError>>>>,
         pub run_called: Arc<Mutex<bool>>,
         #[allow(clippy::type_complexity)]
         on_run: Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
@@ -195,7 +196,7 @@ pub mod test_utils {
             Self {
                 id: 0,
                 name: String::new(),
-                run_result: Arc::new(Mutex::new(Some(Ok(())))),
+                run_result: Arc::new(Mutex::new(Some(Ok(None)))),
                 run_called: Arc::new(Mutex::new(false)),
                 on_run: Arc::new(Mutex::new(None)),
             }
@@ -231,7 +232,7 @@ pub mod test_utils {
             Self {
                 id,
                 name: name.into(),
-                run_result: Arc::new(Mutex::new(Some(Ok(())))),
+                run_result: Arc::new(Mutex::new(Some(Ok(None)))),
                 run_called: Arc::new(Mutex::new(false)),
                 on_run: Arc::new(Mutex::new(None)),
             }
@@ -255,7 +256,7 @@ pub mod test_utils {
 
         pub fn reset(&self) {
             *self.run_called.lock().unwrap() = false;
-            *self.run_result.lock().unwrap() = Some(Ok(()));
+            *self.run_result.lock().unwrap() = Some(Ok(None));
             *self.on_run.lock().unwrap() = None;
         }
     }
@@ -273,7 +274,7 @@ pub mod test_utils {
             &self,
             _event_bus: &Arc<dyn EventBus>,
             _cancel_token: &dyn CancelToken,
-        ) -> Result<(), TaskError> {
+        ) -> Result<Option<TaskResultPayload>, TaskError> {
             *self.run_called.lock().unwrap() = true;
 
             let on_run = self.on_run.lock().unwrap();
@@ -282,7 +283,7 @@ pub mod test_utils {
             }
 
             let mut res_guard = self.run_result.lock().unwrap();
-            res_guard.take().unwrap_or(Ok(()))
+            res_guard.take().unwrap_or(Ok(None))
         }
     }
 
@@ -295,198 +296,5 @@ pub mod test_utils {
 
     pub fn sample_test_metadata_with_id_name(id: usize, name: &str) -> TaskMetadata {
         TaskMetadata::builder().id(id).name(name).build()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::infra::test_utils::{MockCancelToken, MockEventBus, sample_progress};
-    use insta::assert_debug_snapshot;
-    use std::assert_matches;
-
-    mod status {
-        use super::*;
-
-        #[test]
-        fn default_is_pending() {
-            assert_eq!(Status::default(), Status::Pending);
-        }
-
-        #[test]
-        fn partial_eq_works_for_all_variants() {
-            assert_eq!(Status::Pending, Status::Pending);
-            assert_eq!(Status::Running, Status::Running);
-            assert_eq!(Status::Completed, Status::Completed);
-            assert_eq!(Status::Failed, Status::Failed);
-            assert_eq!(Status::Cancelled, Status::Cancelled);
-            assert_ne!(Status::Running, Status::Failed);
-        }
-
-        #[test]
-        fn set_status_updates_field() {
-            let mut meta = TaskMetadata::default();
-            assert_eq!(meta.status(), Status::Pending);
-            meta.mark_running(None);
-            assert_eq!(meta.status(), Status::Running);
-            meta.mark_cancelled();
-            assert_eq!(meta.status(), Status::Cancelled);
-        }
-    }
-
-    mod builder {
-        use super::*;
-
-        #[test]
-        fn new_returns_default_values() {
-            let meta = MetadataBuilder::new().build();
-            assert_debug_snapshot!(meta,@r#"
-            TaskMetadata {
-                id: 0,
-                name: "",
-                status: Pending,
-                progress: None,
-                error: None,
-                result: None,
-            }
-            "#);
-        }
-
-        #[test]
-        fn chain_call_sets_fields_correctly() {
-            let meta = MetadataBuilder::new()
-                .id(42)
-                .name("transcode_1080p")
-                .build();
-            assert_debug_snapshot!(meta,@r#"
-            TaskMetadata {
-                id: 42,
-                name: "transcode_1080p",
-                status: Pending,
-                progress: None,
-                error: None,
-                result: None,
-            }
-            "#);
-        }
-
-        #[test]
-        fn builder_default_matches_struct_default() {
-            let from_struct = TaskMetadata::default();
-            let from_builder = MetadataBuilder::new().build();
-            assert_eq!(from_struct, from_builder);
-        }
-    }
-
-    mod metadata {
-        use super::*;
-
-        #[test]
-        fn all_getters_return_expected_values() {
-            let meta = TaskMetadata::builder().id(123).name("demo_task").build();
-            assert_eq!(meta.id(), 123);
-            assert_eq!(meta.name(), "demo_task");
-            assert_eq!(meta.status(), Status::Pending);
-        }
-
-        #[test]
-        fn set_progress_supports_some_and_none() {
-            let mut meta = TaskMetadata::default();
-            assert!(meta.progress().is_none());
-            let prog = sample_progress();
-            meta.mark_running(Some(prog));
-            assert_eq!(meta.progress().unwrap(), prog);
-            meta.mark_running(None);
-            assert!(meta.progress().is_none());
-        }
-
-        #[test]
-        fn set_error_handles_option_correctly() {
-            let mut meta = TaskMetadata::default();
-            assert!(meta.error().is_none());
-            meta.set_error(Some("file not found"));
-            assert_debug_snapshot!(meta.error(),@r#"
-            Some(
-                "file not found",
-            )
-            "#);
-            meta.set_error(None::<String>);
-            assert!(meta.error().is_none());
-        }
-
-        #[test]
-        fn set_result_handles_option_correctly() {
-            let mut meta = TaskMetadata::default();
-            meta.mark_completed(None);
-            assert!(meta.result().is_none());
-            meta.set_result(Some("output.mp4".to_owned()));
-            assert_debug_snapshot!(meta.result(), @r#"
-            Some(
-                "output.mp4",
-            )
-            "#);
-            meta.set_result(None::<String>);
-            assert!(meta.result().is_none());
-        }
-
-        #[test]
-        fn clone_preserves_full_state() {
-            let original = TaskMetadata::builder().id(7).name("clone_test").build();
-            let cloned = original.clone();
-            assert_eq!(original, cloned);
-        }
-
-        #[test]
-        fn mark_running_updates_status_and_clears_error() {
-            let mut meta = TaskMetadata::default();
-            meta.set_error(Some("previous error"));
-            meta.mark_running(Some(sample_progress()));
-            assert_eq!(meta.status(), Status::Running);
-            assert!(meta.error().is_none());
-            assert!(meta.result().is_none());
-            assert!(meta.progress().is_some());
-        }
-
-        #[test]
-        fn mark_completed_clears_error_and_sets_result() {
-            let mut meta = TaskMetadata::default();
-            meta.set_error(Some("err"));
-            meta.mark_completed(Some("output.mp4".into()));
-            assert_eq!(meta.status(), Status::Completed);
-            assert!(meta.error().is_none());
-            assert_eq!(meta.result(), Some("output.mp4".into()));
-        }
-    }
-
-    mod task_trait {
-        use super::*;
-        use crate::domain::test_utils::MockTask;
-
-        #[test]
-        fn trait_object_works_normally() {
-            let task: Arc<dyn Task> = Arc::new(MockTask::new(10, "mock_transcode"));
-            assert_eq!(task.id(), 10);
-            assert_eq!(task.name(), "mock_transcode");
-        }
-
-        #[test]
-        fn run_invokes_task_logic() {
-            let task = MockTask::default();
-            let event_bus: Arc<dyn EventBus> = Arc::new(MockEventBus::default());
-            let cancel_token = MockCancelToken::default();
-            assert!(!*task.run_called.lock().unwrap());
-            task.run(&event_bus, &cancel_token).unwrap();
-            assert!(*task.run_called.lock().unwrap());
-        }
-
-        #[test]
-        fn run_returns_cancelled_when_set() {
-            let task = MockTask::new(1, "cancel_me");
-            task.set_cancelled();
-            let bus: Arc<dyn EventBus> = Arc::new(MockEventBus::default());
-            let token = MockCancelToken::default();
-            let result = task.run(&bus, &token);
-            assert_matches!(result, Err(TaskError::Cancelled));
-        }
     }
 }

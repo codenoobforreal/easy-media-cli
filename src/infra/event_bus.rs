@@ -241,7 +241,11 @@ mod tests {
             metadata: sample_test_metadata(1),
         })
         .unwrap();
-        bus.publish(Event::TaskCompleted { id: 1 }).unwrap();
+        bus.publish(Event::TaskCompleted {
+            id: 1,
+            payload: None,
+        })
+        .unwrap();
         assert_eq!(bus.events().len(), 2);
     }
 

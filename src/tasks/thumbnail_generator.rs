@@ -1,4 +1,5 @@
 use crate::{
+    domain::TaskResultPayload,
     task::FfmpegTask,
     tasks::{
         FPS_MODE_ARGS, LOG_ERROR_ARGS, OVERWRITE_ARGS, PROGRESS_ARGS, SKIP_FRAME_ARGS,
@@ -141,6 +142,11 @@ impl FfmpegTask for ThumbnailGenerator {
 
     fn build_args(&self) -> Vec<OsString> {
         self.build_ffmpeg_args()
+    }
+
+    fn result_payload(&self, _: Option<u64>) -> Option<TaskResultPayload> {
+        let output_dir = self.output.parent().unwrap_or(&self.output).to_path_buf();
+        Some(TaskResultPayload::ThumbnailGenerator { output_dir })
     }
 }
 

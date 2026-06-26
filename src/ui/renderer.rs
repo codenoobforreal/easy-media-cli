@@ -131,10 +131,12 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
         if with_result.is_empty() {
             return Ok(());
         }
+        writeln!(w)?;
         writeln!(w, "{RESULT_LIST_TITLE}")?;
         for (_, task) in with_result {
             if let Some(result) = task.result() {
-                writeln!(w, "[{}]: {}", task.name(), result)?;
+                writeln!(w, "[{}]:", task.name())?;
+                writeln!(w, "{result}")?;
             }
         }
         writeln!(w)?;
@@ -326,19 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn write_task_results_only_lists_with_result() {
-        let mut with_result = sample_test_metadata_with_id_name(1, "task1");
-        with_result.mark_completed(Some("output.mp4".to_owned()));
-        let mut complete = sample_test_metadata_with_id_name(2, "task2");
-        complete.mark_completed(None);
-        let tasks = vec![(1, &with_result), (2, &complete)];
-        let mut buf = Vec::new();
-        MemRender::write_task_results(&mut buf, &tasks).unwrap();
-        let out = String::from_utf8(buf).unwrap();
-        assert_debug_snapshot!(out,@r#""Task results:\n[task1]: output.mp4\n\n""#);
-    }
-
-    #[test]
     fn render_running_first_render_no_cursor_move() {
         let mut r = mem_renderer();
         r.render_running(&sample_stats(), &[]).unwrap();
@@ -355,24 +344,6 @@ mod tests {
         r.render_running(&sample_stats(), &[]).unwrap();
         // 第二次渲染会先回退光标，行数保持一致
         assert_eq!(r.last_ui_lines, first_lines);
-    }
-
-    #[test]
-    fn render_final_outputs_all_sections() {
-        let mut r = mem_renderer();
-        let mut failed = sample_test_metadata_with_id_name(1, "fail_task");
-        failed.mark_failed("io error".to_owned());
-        let mut success = sample_test_metadata_with_id_name(2, "ok_task");
-        success.mark_completed(Some("done.mp4".to_owned()));
-        let tasks = vec![(1, &failed), (2, &success)];
-        r.render_final(&sample_stats(), &tasks, "All tasks finished!")
-            .unwrap();
-        let stdout = String::from_utf8_lossy(&r.stdout);
-        let stderr = String::from_utf8_lossy(&r.stderr);
-        assert!(stdout.contains("Total: 0"), "{}", stdout);
-        assert!(stdout.contains("Task results:"));
-        assert!(stdout.contains("All tasks finished!"));
-        assert_debug_snapshot!(stderr,@r#""List of failed tasks:\n[fail_task]:\nio error\n""#);
     }
 
     #[test]

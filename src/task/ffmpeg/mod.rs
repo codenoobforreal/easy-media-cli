@@ -10,6 +10,8 @@ use std::{
 };
 pub use wrapper::{FfmpegTaskWrapper, read_progress};
 
+use crate::domain::TaskResultPayload;
+
 pub trait FfmpegTask: Send + Sync {
     fn id(&self) -> usize;
     fn name(&self) -> &str;
@@ -29,13 +31,21 @@ pub trait FfmpegTask: Send + Sync {
     }
 
     /// 捕获模式下处理命令输出（比如解析 ffprobe JSON），默认空实现
-    fn handle_captured_output(&self, _stdout: &[u8], _stderr: &[u8]) -> Result<()> {
-        Ok(())
+    fn handle_captured_output(
+        &self,
+        _stdout: &[u8],
+        _stderr: &[u8],
+    ) -> Result<Option<TaskResultPayload>> {
+        Ok(None)
     }
 
     /// 当前任务是否需要提前创建输出目录，根据 output 是否有值判断
     fn needs_output_dir(&self) -> bool {
         self.output().is_some()
+    }
+
+    fn result_payload(&self, _total_size: Option<u64>) -> Option<TaskResultPayload> {
+        None
     }
 
     /// 任务已预知的视频时长，用于进度计算。返回 `Some` 可避免包装器重复获取元数据。

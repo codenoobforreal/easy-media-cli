@@ -10,7 +10,7 @@
 //! - <https://handbrake.fr/docs/en/1.10.0/workflow/adjust-quality.html>
 
 use crate::{
-    domain::{Metadata as MediaMetadata, Orientation, Resolution},
+    domain::{Metadata as MediaMetadata, Orientation, Resolution, TaskResultPayload},
     task::FfmpegTask,
     tasks::{
         CODEC_SVTAV1_ARGS, COPY_AUDIO_ARGS, LOG_ERROR_ARGS, PIX_FMT_10LE_ARGS, PRESET_SVTAV1_ARGS,
@@ -288,6 +288,13 @@ impl FfmpegTask for VideoEncoder {
 
     fn duration(&self) -> Option<Duration> {
         Some(self.duration)
+    }
+
+    fn result_payload(&self, total_size: Option<u64>) -> Option<TaskResultPayload> {
+        Some(TaskResultPayload::VideoEncoder {
+            output_path: self.output.clone(),
+            size_bytes: total_size,
+        })
     }
 }
 

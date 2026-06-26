@@ -8,7 +8,7 @@ mod media;
 mod task;
 
 pub use cancel_token::CancelToken;
-pub use event::Event;
+pub use event::{Event, TaskResultPayload};
 pub use media::{
     AudioStream, Fetcher, Format, Metadata, Orientation, Resolution, ResolutionError, VideoStream,
 };

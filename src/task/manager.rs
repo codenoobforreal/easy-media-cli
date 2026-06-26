@@ -67,14 +67,25 @@ impl TaskManager {
             })?;
 
             match task.run(&self.event_bus, self.cancel_token.as_ref()) {
-                Ok(()) => {
-                    self.event_bus.publish(Event::TaskCompleted { id })?;
+                Ok(Some(payload)) => {
+                    self.event_bus.publish(Event::TaskCompleted {
+                        id,
+                        payload: Some(payload),
+                    })?;
                     success_count += 1;
                 }
+
+                Ok(None) => {
+                    self.event_bus
+                        .publish(Event::TaskCompleted { id, payload: None })?;
+                    success_count += 1;
+                }
+
                 Err(TaskError::Cancelled) => {
                     self.event_bus.publish(Event::TaskCancelled { id })?;
                     cancelled_count += 1;
                 }
+
                 Err(TaskError::Failed(e)) => {
                     self.event_bus.publish(Event::TaskFailed {
                         id,
@@ -162,7 +173,13 @@ mod tests {
         assert_eq!(events.len(), 4);
         assert_matches!(events[0], Event::TaskQueueStart { total: 1 });
         assert_matches!(&events[1], Event::TaskStarted{metadata} if metadata.id() == 1);
-        assert_matches!(events[2], Event::TaskCompleted { id: 1 });
+        assert_matches!(
+            events[2],
+            Event::TaskCompleted {
+                id: 1,
+                payload: None
+            }
+        );
         assert_matches!(
             events[3],
             Event::AllTasksCompleted {
@@ -296,11 +313,13 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, Event::TaskCancelled { id: 1 }))
         );
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, Event::TaskCompleted { id: 2 }))
-        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::TaskCompleted {
+                id: 2,
+                payload: None
+            }
+        )));
         let final_event = events.last().expect("should have final event");
         match final_event {
             Event::AllTasksCompleted {
