@@ -9,7 +9,6 @@ on:
 jobs:
   build:
     name: Build and Release
-    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
