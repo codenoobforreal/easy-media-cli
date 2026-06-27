@@ -1,5 +1,6 @@
 # 发布 commit 消息模板
-pre-release-commit-message = "chore: 发布 {{version}}"
+# https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs
+pre-release-commit-message = "chore: 发布 {{version}} [skip ci]"
 # 注解标签消息
 tag-message = "{{version}}"
 # 标签名称（默认已是 v{{version}}，此处显式说明）
