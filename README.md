@@ -65,10 +65,10 @@ cargo build --release
 ```bash
 easy-media-cli -h
 easy-media-cli scs -h
-easy-media-cli ve -h
+easy-media-cli ev -h
 
 easy-media-cli scs [OPTIONS] --input <INPUT>
-easy-media-cli ve [OPTIONS] --input <INPUT>
+easy-media-cli ev [OPTIONS] --input <INPUT>
 ```
 
 ### 使用示例
@@ -82,7 +82,7 @@ easy-media-cli scs -i demo.mp4
 
 2. 批量处理目录，自定义场景敏感度
 ```bash
-easy-media-cli scs -i ./videos -t 5 -o ./thumbnails
+easy-media-cli scs -i ./videos -t 0.5 -o ./thumbnails
 ```
 
 3. 递归扫描目录，生成指定宽度的缩略图
@@ -94,12 +94,12 @@ easy-media-cli scs -i ./media -w 480 -d 3
 
 1. 编码单个视频，限制分辨率至 720p 且帧率不超过 24
 ```bash
-easy-media-cli encode -i demo.mp4 -r 720 -f 24
+easy-media-cli encode -i demo.mp4 -r 1280x720 -f 24
 ```
 
 2. 批量编码目录，输出到指定文件夹
 ```bash
-easy-media-cli encode -i ./raw_videos -o ./encoded -r 1080
+easy-media-cli encode -i ./raw_videos -o ./encoded -r 1920x1080
 ```
 
 ## 开发指南

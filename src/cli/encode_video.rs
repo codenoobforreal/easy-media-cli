@@ -11,7 +11,7 @@ use clap::{Args, value_parser};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 #[derive(Args, Debug)]
-pub struct VeArgs {
+pub struct EvArgs {
     /// Path to an input video file or a directory. Directories are processed recursively
     #[arg(short, long)]
     input: PathBuf,
@@ -30,7 +30,7 @@ pub struct VeArgs {
 }
 
 pub fn handle_encode_video(
-    args: &VeArgs,
+    args: &EvArgs,
     event_bus: Arc<dyn EventBus>,
     command_runner: Arc<dyn CapturingCommandRunner>,
     metadata_fetcher: Arc<dyn MetadataFetcher>,
@@ -89,17 +89,17 @@ mod tests {
     use std::io;
 
     /// 解析 Ve 子命令参数，仅用于预期成功的正向场景
-    fn parse_ve_args(cmd: &[&str]) -> Result<VeArgs> {
+    fn parse_ve_args(cmd: &[&str]) -> Result<EvArgs> {
         let cli = Cli::try_parse_from(cmd)
             .with_context(|| format!("Failed to parse CLI args: {cmd:?}"))?;
         match cli.command {
-            Commands::Ve(args) => Ok(args),
+            Commands::Ev(args) => Ok(args),
             Commands::Scs(..) => panic!("parse_ve_args only supports Ve subcommand"),
         }
     }
 
     fn run_ve_command(
-        args: &VeArgs,
+        args: &EvArgs,
         bus: &Arc<MockEventBus>,
         runner: &Arc<MockCommandRunner>,
         fetcher: &Arc<MockMetadataFetcher>,
@@ -128,9 +128,9 @@ mod tests {
 
         #[test]
         fn default_values_are_correct() -> Result<()> {
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "test.mp4"])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", "test.mp4"])?;
             assert_debug_snapshot!(args, @r#"
-            VeArgs {
+            EvArgs {
                 input: "test.mp4",
                 output: None,
                 depth: None,
@@ -145,7 +145,7 @@ mod tests {
         fn all_short_args_parse_correctly() -> Result<()> {
             let args = parse_ve_args(&[
                 "easy-media-cli",
-                "ve",
+                "ev",
                 "-i",
                 "/videos/input",
                 "-o",
@@ -158,7 +158,7 @@ mod tests {
                 "30",
             ])?;
             assert_debug_snapshot!(args, @r#"
-            VeArgs {
+            EvArgs {
                 input: "/videos/input",
                 output: Some(
                     "/output/encoded",
@@ -179,7 +179,7 @@ mod tests {
         fn all_long_args_parse_correctly() -> Result<()> {
             let args = parse_ve_args(&[
                 "easy-media-cli",
-                "ve",
+                "ev",
                 "--input",
                 "input.mp4",
                 "--output",
@@ -192,7 +192,7 @@ mod tests {
                 "60",
             ])?;
             assert_debug_snapshot!(args, @r#"
-            VeArgs {
+            EvArgs {
                 input: "input.mp4",
                 output: Some(
                     "out_dir",
@@ -211,21 +211,21 @@ mod tests {
 
         #[test]
         fn fps_below_1_rejected() {
-            let err = Cli::try_parse_from(["easy-media-cli", "ve", "-i", "test.mp4", "-f", "0"])
+            let err = Cli::try_parse_from(["easy-media-cli", "ev", "-i", "test.mp4", "-f", "0"])
                 .unwrap_err();
             assert_debug_snapshot!(err.kind(), @"ValueValidation");
         }
 
         #[test]
         fn fps_above_120_rejected() {
-            let err = Cli::try_parse_from(["easy-media-cli", "ve", "-i", "test.mp4", "-f", "121"])
+            let err = Cli::try_parse_from(["easy-media-cli", "ev", "-i", "test.mp4", "-f", "121"])
                 .unwrap_err();
             assert_debug_snapshot!(err.kind(), @"ValueValidation");
         }
 
         #[test]
         fn depth_above_10_rejected() {
-            let err = Cli::try_parse_from(["easy-media-cli", "ve", "-i", "test.mp4", "-d", "11"])
+            let err = Cli::try_parse_from(["easy-media-cli", "ev", "-i", "test.mp4", "-d", "11"])
                 .unwrap_err();
             assert_debug_snapshot!(err.kind(), @"ValueValidation");
         }
@@ -233,7 +233,7 @@ mod tests {
         #[test]
         fn invalid_resolution_format_rejected() {
             let err =
-                Cli::try_parse_from(["easy-media-cli", "ve", "-i", "test.mp4", "-r", "invalid"])
+                Cli::try_parse_from(["easy-media-cli", "ev", "-i", "test.mp4", "-r", "invalid"])
                     .unwrap_err();
             assert_debug_snapshot!(err.kind(), @"ValueValidation");
         }
@@ -241,20 +241,20 @@ mod tests {
         #[test]
         fn resolution_zero_dimension_rejected() {
             let err =
-                Cli::try_parse_from(["easy-media-cli", "ve", "-i", "test.mp4", "-r", "0x1080"])
+                Cli::try_parse_from(["easy-media-cli", "ev", "-i", "test.mp4", "-r", "0x1080"])
                     .unwrap_err();
             assert_debug_snapshot!(err.kind(), @"ValueValidation");
         }
 
         #[test]
         fn missing_input_returns_missing_arg_error() {
-            let err = Cli::try_parse_from(["easy-media-cli", "ve"]).unwrap_err();
+            let err = Cli::try_parse_from(["easy-media-cli", "ev"]).unwrap_err();
             assert_debug_snapshot!(err.kind(), @"MissingRequiredArgument");
         }
 
         #[test]
         fn ve_help_text_stable_snapshot() {
-            let err = Cli::try_parse_from(["easy-media-cli", "ve", "--help"]).unwrap_err();
+            let err = Cli::try_parse_from(["easy-media-cli", "ev", "--help"]).unwrap_err();
             assert_debug_snapshot!(err.kind(), @"DisplayHelp");
         }
     }
@@ -265,7 +265,7 @@ mod tests {
         #[test]
         fn empty_video_dir_returns_no_video_error() -> Result<()> {
             let (bus, runner, fetcher, fs, renderer) = setup_test_suite(&vec![]);
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", "."])?;
             let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer).unwrap_err();
             assert_debug_snapshot!(err, @r#""no video found in path: \n.""#);
             Ok(())
@@ -275,7 +275,7 @@ mod tests {
         fn single_video_generates_one_task() -> Result<()> {
             let (bus, runner, fetcher, fs, renderer) =
                 setup_test_suite(&vec![PathBuf::from("demo.mp4")]);
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", "."])?;
             run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
 
             match bus
@@ -299,7 +299,7 @@ mod tests {
                 PathBuf::from("c.mov"),
             ];
             let (bus, runner, fetcher, fs, renderer) = setup_test_suite(&videos);
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", "."])?;
             run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
 
             match bus
@@ -320,7 +320,7 @@ mod tests {
         fn custom_output_dir_creates_correct_path() -> Result<()> {
             let (bus, runner, fetcher, fs, renderer) =
                 setup_test_suite(&vec![PathBuf::from("test.mp4")]);
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", ".", "-o", "/custom/output"])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", ".", "-o", "/custom/output"])?;
             run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
 
             let created_dirs = fs.created_dirs();
@@ -336,7 +336,7 @@ mod tests {
         fn resolution_propagates_to_ffmpeg_scale() -> Result<()> {
             let (bus, runner, fetcher, fs, renderer) =
                 setup_test_suite(&vec![PathBuf::from("test.mp4")]);
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", ".", "-r", "1280x720"])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", ".", "-r", "1280x720"])?;
             run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
             let args = runner.last_spawn_args();
             let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
@@ -349,7 +349,7 @@ mod tests {
         fn fps_propagates_to_ffmpeg_param() -> Result<()> {
             let (bus, runner, fetcher, fs, renderer) =
                 setup_test_suite(&vec![PathBuf::from("test.mp4")]);
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", ".", "-f", "30"])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", ".", "-f", "30"])?;
             run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
             let args = runner.last_spawn_args();
             let r_idx = args.iter().position(|s| s == "-vf").unwrap();
@@ -362,7 +362,7 @@ mod tests {
         fn task_ids_start_from_1_increment() -> Result<()> {
             let videos = vec![PathBuf::from("a.mp4"), PathBuf::from("b.mp4")];
             let (bus, runner, fetcher, fs, renderer) = setup_test_suite(&videos);
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", "."])?;
             run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
             let started_ids: Vec<usize> = bus
                 .events()
@@ -386,7 +386,7 @@ mod tests {
                     "permission denied",
                 )),
             );
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", "."])?;
             let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer).unwrap_err();
             assert_debug_snapshot!(err, @r#"
                Custom {
@@ -402,7 +402,7 @@ mod tests {
             let (bus, runner, fetcher, fs, renderer) =
                 setup_test_suite(&vec![PathBuf::from("test.mp4")]);
             fetcher.set_err("metadata fetch failed");
-            let args = parse_ve_args(&["easy-media-cli", "ve", "-i", "."])?;
+            let args = parse_ve_args(&["easy-media-cli", "ev", "-i", "."])?;
             let err = run_ve_command(&args, &bus, &runner, &fetcher, &fs, renderer).unwrap_err();
             assert!(err.to_string().contains("metadata fetch failed"));
             Ok(())

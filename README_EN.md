@@ -65,10 +65,10 @@ The current release includes two subcommands: `scs` (scene‑snap thumbnail gene
 ```bash
 easy-media-cli -h
 easy-media-cli scs -h
-easy-media-cli ve -h
+easy-media-cli ev -h
 
 easy-media-cli scs [OPTIONS] --input <INPUT>
-easy-media-cli ve [OPTIONS] --input <INPUT>
+easy-media-cli ev [OPTIONS] --input <INPUT>
 ```
 
 ### Examples
@@ -82,7 +82,7 @@ easy-media-cli scs -i demo.mp4
 
 2. Batch process a directory with custom sensitivity
 ```bash
-easy-media-cli scs -i ./videos -t 5 -o ./thumbnails
+easy-media-cli scs -i ./videos -t 0.5 -o ./thumbnails
 ```
 
 3. Recursive scan with fixed output width
@@ -94,12 +94,12 @@ easy-media-cli scs -i ./media -w 480 -d 3
 
 1. Encode a single video, cap resolution to 720p and framerate to 24
 ```bash
-easy-media-cli encode -i demo.mp4 -r 720 -f 24
+easy-media-cli encode -i demo.mp4 -r 1280x720 -f 24
 ```
 
 2. Batch encode a directory, output to a custom folder
 ```bash
-easy-media-cli encode -i ./raw_videos -o ./encoded -r 1080
+easy-media-cli encode -i ./raw_videos -o ./encoded -r 1920x1080
 ```
 
 ## Development

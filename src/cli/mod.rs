@@ -17,7 +17,7 @@ use crate::{
 };
 use anyhow::{Result, anyhow, bail};
 use clap::{Parser, Subcommand, value_parser};
-pub use encode_video::{VeArgs, handle_encode_video};
+pub use encode_video::{EvArgs, handle_encode_video};
 pub use scene_cut_snap::{ScsArgs, handle_scene_cut_snap};
 use std::{
     path::PathBuf,
@@ -75,7 +75,7 @@ pub enum Commands {
     #[allow(clippy::doc_markdown)]
     Scs(ScsArgs),
     /// Batch SVT-AV1 archival encoding with resolution/frame-rate caps
-    Ve(VeArgs),
+    Ev(EvArgs),
 }
 
 pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
@@ -97,7 +97,7 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
             terminal_renderer,
             &cli.global,
         )?,
-        Commands::Ve(args) => handle_encode_video(
+        Commands::Ev(args) => handle_encode_video(
             args,
             event_bus,
             command_runner,
