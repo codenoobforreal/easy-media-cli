@@ -12,19 +12,19 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 #[derive(Args, Debug)]
 pub struct VeArgs {
-    /// Input video file or directory (directories are processed recursively)
+    /// Path to an input video file or a directory. Directories are processed recursively
     #[arg(short, long)]
     input: PathBuf,
-    /// Output directory; defaults to the parent directory of the input file
+    /// Directory for output files. When input is a file, defaults to that file's parent directory
     #[arg(short, long)]
     output: Option<PathBuf>,
-    /// Maximum directory scan depth 0–10, current directory if unset
+    /// Maximum recursion depth for directory scans (0–10). If not given, only the specified directory is processed (equivalent to depth 0)
     #[arg(short, long, value_parser = value_parser!(u8).range(0..=10))]
     depth: Option<u8>,
-    /// Maximum output resolution (downscale only); default 1080p
+    /// Maximum output resolution, specified as WIDTHxHEIGHT (e.g. 1280x720). If the source resolution exceeds this value, the output is capped. Defaults to 1920x1080 when omitted
     #[arg(short, long)]
     resolution: Option<Resolution>,
-    /// Maximum output frame rate (capped if source exceeds); default 24
+    /// Maximum output frame rate in frames per second (1–120). If the source exceeds this, it is capped
     #[arg(short, long, default_value_t = 24,value_parser = value_parser!(u8).range(1..=120))]
     fps: u8,
 }

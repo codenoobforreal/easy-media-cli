@@ -20,7 +20,7 @@ pub struct ThumbnailGenerator {
     name: String,
     input: PathBuf,
     output: PathBuf,
-    scene_threshold: u8,
+    scene_threshold: f32,
     width: Option<u16>,
     duration: Duration,
 }
@@ -30,7 +30,7 @@ impl ThumbnailGenerator {
         id: usize,
         input: impl Into<PathBuf>,
         output_dir: Option<&Path>,
-        scene_threshold: u8,
+        scene_threshold: f32,
         width: Option<u16>,
         metadata: &MediaMetadata,
     ) -> Result<Self> {
@@ -81,13 +81,12 @@ impl ThumbnailGenerator {
 
         Ok(output_base)
     }
-
+    /// 构建命令参数列表
+    /// # 关于滤镜
+    /// FFmpeg 的 -vf 参数用逗号来分隔不同的滤镜（链），例如 `filter1,filter2`。如果某个滤镜的参数内部需要出现逗号，就必须用反斜杠 \ 对它进行转义，写成 `\,`，否则 FFmpeg 会错误地把这个逗号当成滤镜分隔符，导致解析失败
     pub fn build_command_args(&self) -> Vec<OsString> {
-        let threshold: f64 = f64::from(self.scene_threshold) / 10.0;
+        let threshold = self.scene_threshold;
 
-        // FFmpeg 的 -vf 参数用逗号 , 来分隔不同的滤镜（链），例如 filter1,filter2。
-        // 如果某个滤镜的参数内部需要出现逗号，就必须用反斜杠 \ 对它进行转义，写成 \,，
-        // 否则 FFmpeg 会错误地把这个逗号当成滤镜分隔符，导致解析失败。
         let video_filter_str: OsString = match self.width {
             None => format!(
                 "select=gt(scene\\,{threshold:.1}),scale=in_range=auto:out_range=full,format=yuv420p",

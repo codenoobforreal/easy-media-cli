@@ -38,7 +38,7 @@ pub struct Cli {
 
 #[derive(Debug, Clone, Parser)]
 pub struct GlobalConfig {
-    /// Render interval in milliseconds
+    /// Terminal render interval in milliseconds
     #[arg(long, global = true, default_value_t = 100, value_parser = value_parser!(u64).range(1..=10000))]
     pub render_interval_ms: u64,
 
@@ -62,7 +62,7 @@ fn parse_progress_threshold(s: &str) -> Result<f32> {
         .parse::<f32>()
         .map_err(|_| anyhow!("Invalid float: '{s}'"))?;
     if !(0.1..=10.0).contains(&val) {
-        bail!("progress threshold must be between 0.1 and 10.0, got {val}");
+        bail!("Progress threshold must be between 0.1 and 10.0, got {val}");
     }
 
     Ok(val)

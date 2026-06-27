@@ -6,27 +6,38 @@ use crate::{
     tasks::ThumbnailGenerator,
     ui::Renderer,
 };
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use clap::{Args, value_parser};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 #[derive(Args, Debug)]
 pub struct ScsArgs {
-    /// Input video file or directory (directories are processed recursively)
+    /// Path to an input video file or a directory. Directories are processed recursively
     #[arg(short, long)]
     input: PathBuf,
-    /// Output dir; auto creates video-named subfolders if unset
+    /// Directory for output files. If not set, a subfolder named after the input video is automatically created alongside it
     #[arg(short, long)]
     output: Option<PathBuf>,
-    /// Maximum directory scan depth 0–10, current directory if unset
-    #[arg(short, long, default_value_t = 3, value_parser = value_parser!(u8).range(0..=10))]
-    threshold: u8,
-    /// Thumbnail min width 1, height auto-scaled
-    #[arg(short, long, value_parser = value_parser!(u16).range(1..))]
-    width: Option<u16>,
-    /// Scan depth limit 0–10, current directory if unset
+    /// Maximum recursion depth for directory scans (0–10). If not given, only the specified directory is processed (equivalent to depth 0)
     #[arg(short, long, value_parser = value_parser!(u8).range(0..=10))]
     depth: Option<u8>,
+    /// Scene detection sensitivity threshold (0.01 – 1.0)
+    #[arg(short, long, default_value_t = 0.3, value_parser = parse_threshold)]
+    threshold: f32,
+    /// Thumbnail width in pixels (minimum 1). Height is scaled proportionally
+    #[arg(short, long, value_parser = value_parser!(u16).range(1..))]
+    width: Option<u16>,
+}
+
+fn parse_threshold(s: &str) -> Result<f32> {
+    let val = s
+        .parse::<f32>()
+        .map_err(|_| anyhow!("Invalid float: '{s}'"))?;
+    if !(0.01..=1.0).contains(&val) {
+        bail!("Scene detection sensitivity threshold must be between 0.01 and 1.0, got {val}");
+    }
+
+    Ok(val)
 }
 
 pub fn handle_scene_cut_snap(
