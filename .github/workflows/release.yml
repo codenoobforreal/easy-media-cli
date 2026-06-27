@@ -102,9 +102,9 @@ jobs:
         uses: orhun/git-cliff-action@v4
         id: git-cliff
         with:
-          args: -c github --latest --strip header # 只生成最新 tag 的变更，去掉默认标题
+          args: --latest --strip header
         env:
-          OUTPUT: CHANGELOG.md # 生成的文件名
+          OUTPUT: CHANGELOG.md
           GITHUB_REPO: ${{ github.repository }}
 
       - name: Download all artifacts
