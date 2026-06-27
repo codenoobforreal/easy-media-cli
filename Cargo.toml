@@ -1,6 +1,6 @@
 [package]
 name = "easy-media-cli"
-version = "0.3.2"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 readme = "README.md"
