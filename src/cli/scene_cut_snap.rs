@@ -144,9 +144,9 @@ mod tests {
             ScsArgs {
                 input: "test.mp4",
                 output: None,
-                threshold: 3,
-                width: None,
                 depth: None,
+                threshold: 0.3,
+                width: None,
             }
             "#);
             Ok(())
@@ -162,7 +162,7 @@ mod tests {
                 "-o",
                 "/output/thumbs",
                 "-t",
-                "7",
+                "0.7",
                 "-w",
                 "480",
                 "-d",
@@ -174,12 +174,12 @@ mod tests {
                 output: Some(
                     "/output/thumbs",
                 ),
-                threshold: 7,
-                width: Some(
-                    480,
-                ),
                 depth: Some(
                     2,
+                ),
+                threshold: 0.7,
+                width: Some(
+                    480,
                 ),
             }
             "#);
@@ -197,7 +197,7 @@ mod tests {
                 "--output",
                 "out_dir",
                 "--threshold",
-                "0",
+                "0.2",
                 "--width",
                 "1920",
                 "--depth",
@@ -209,12 +209,12 @@ mod tests {
                 output: Some(
                     "out_dir",
                 ),
-                threshold: 0,
-                width: Some(
-                    1920,
-                ),
                 depth: Some(
                     10,
+                ),
+                threshold: 0.2,
+                width: Some(
+                    1920,
                 ),
             }
             "#);
@@ -330,7 +330,7 @@ mod tests {
         fn threshold_propagates_to_ffmpeg_filter() -> Result<()> {
             let (bus, runner, fetcher, fs, renderer) =
                 setup_test_suite(&vec![PathBuf::from("test.mp4")]);
-            let args = parse_scs_args(&["easy-media-cli", "scs", "-i", ".", "-t", "8"])?;
+            let args = parse_scs_args(&["easy-media-cli", "scs", "-i", ".", "-t", "0.8"])?;
             run_scs_command(&args, &bus, &runner, &fetcher, &fs, renderer)?;
             let args = runner.last_spawn_args();
             let vf_idx = args.iter().position(|s| s == "-vf").unwrap();
