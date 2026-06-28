@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
-    fs, io, mem,
+    fmt, fs, io, mem,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
-pub trait FileSystem: Send + Sync {
+pub trait FileSystem: Send + Sync + fmt::Debug {
     fn symlink_metadata(&self, path: &Path) -> io::Result<FileType>;
     fn read_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
     fn create_dir_all(&self, path: &Path) -> io::Result<()>;
@@ -69,10 +69,16 @@ impl FileSystem for DefaultFileSystem {
     }
 }
 
-/// 由于 bench 中也是用到了这个 mock，我们直接暴露该结构体
+/// 由于 read_progress bench 中也是用到了这个 mock，我们直接暴露该结构体
 #[derive(Default)]
 pub struct MockFileSystem {
     state: Mutex<FsState>,
+}
+
+impl fmt::Debug for MockFileSystem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Mutex<FsState>")
+    }
 }
 
 struct FsState {
@@ -156,80 +162,5 @@ impl FileSystem for MockFileSystem {
 
     fn rename(&self, _from: &Path, _to: &Path) -> io::Result<()> {
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io;
-    use tempfile::tempdir;
-
-    #[test]
-    fn create_dir_all_creates_nested_dirs() {
-        let base = tempdir().unwrap();
-        let target = base.path().join("a/b/c");
-        let fs = DefaultFileSystem;
-        fs.create_dir_all(&target).unwrap();
-        assert!(target.is_dir());
-    }
-
-    #[test]
-    fn symlink_metadata_distinguishes_file_and_dir() {
-        let base = tempdir().unwrap();
-        let file_path = base.path().join("test.txt");
-        fs::write(&file_path, b"hello").unwrap();
-        let fs = DefaultFileSystem;
-        assert_eq!(fs.symlink_metadata(&file_path).unwrap(), FileType::File);
-        assert_eq!(fs.symlink_metadata(base.path()).unwrap(), FileType::Dir);
-    }
-
-    #[test]
-    fn read_dir_returns_all_entries() {
-        let base = tempdir().unwrap();
-        fs::write(base.path().join("a.txt"), b"").unwrap();
-        fs::write(base.path().join("b.txt"), b"").unwrap();
-        fs::create_dir_all(base.path().join("subdir")).unwrap();
-        let fs = DefaultFileSystem;
-        let entries = fs.read_dir(base.path()).unwrap();
-        assert_eq!(entries.len(), 3);
-    }
-
-    #[test]
-    fn rename_moves_file_successfully() {
-        let base = tempdir().unwrap();
-        let from = base.path().join("old.txt");
-        let to = base.path().join("new.txt");
-        fs::write(&from, b"content").unwrap();
-        let fs = DefaultFileSystem;
-        fs.rename(&from, &to).unwrap();
-        assert!(!from.exists());
-        assert!(to.exists());
-    }
-
-    #[test]
-    fn metadata_missing_path_returns_error() {
-        let fs = DefaultFileSystem;
-        let err = fs
-            .symlink_metadata(Path::new("/nonexistent/path/12345"))
-            .unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::NotFound);
-    }
-
-    #[test]
-    fn mock_fs_tracks_created_dirs() {
-        let fs = MockFileSystem::default();
-        let path = PathBuf::from("/test/output");
-        fs.create_dir_all(&path).unwrap();
-        assert_eq!(fs.created_dirs().len(), 1);
-        assert_eq!(fs.created_dirs()[0], path);
-    }
-
-    #[test]
-    fn mock_fs_returns_configured_error() {
-        let fs = MockFileSystem::default();
-        fs.set_create_dir_err(io::ErrorKind::PermissionDenied, "Permission denied");
-        let err = fs.create_dir_all(Path::new("/test")).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
     }
 }

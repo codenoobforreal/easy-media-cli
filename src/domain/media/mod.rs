@@ -4,6 +4,6 @@ mod fetcher;
 mod metadata;
 mod resolution;
 
-pub use fetcher::Fetcher;
-pub use metadata::{AudioStream, Format, Metadata, VideoStream};
+pub use fetcher::MetadataFetcher;
+pub use metadata::{AudioStream, MediaMetadata, MetadataFormat, VideoStream};
 pub use resolution::{Orientation, Resolution, ResolutionError};

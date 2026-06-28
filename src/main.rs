@@ -1,7 +1,7 @@
 use easy_media_cli::{
     cli::run_cli,
-    domain::Event,
-    infra::{DefaultEventBus, EventBus},
+    domain::event::{Event, EventBus},
+    infra::DefaultEventBus,
 };
 use std::{
     process,

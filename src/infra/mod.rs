@@ -11,27 +11,17 @@ mod metadata_fetcher;
 
 pub use cancel_token::DefaultCancelToken;
 pub use command_runner::{
-    CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, CommandSpec,
-    DefaultCommandRunner, StreamingCommandRunnerExt,
+    CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, ChildHandle, CommandOutput,
+    CommandSpec, CommandStreams, DefaultCommandRunner, StreamingCommandRunner,
+    StreamingCommandRunnerExt,
 };
-pub use event_bus::{DefaultEventBus, EventBus, EventHandler};
-pub use ffmpeg_progress::{FfmpegProgressParser, Progress, ProgressTracker, RawFfmpegProgress};
+pub use event_bus::DefaultEventBus;
+pub use ffmpeg_progress::{FfmpegProgressParser, ProgressTracker};
 pub use file_system::{DefaultFileSystem, FileSystem, FileType, MockFileSystem};
 pub use metadata_fetcher::{DefaultMetadataFetcher, FfprobeRawJson, convert_raw_to_metadata};
 
 #[cfg(test)]
 pub mod test_utils {
-    use super::*;
-
-    pub use cancel_token::test_utils::MockCancelToken;
-    pub use command_runner::test_utils::{MockChildHandle, MockCommandRunner};
-    pub use event_bus::test_utils::MockEventBus;
-    pub use ffmpeg_progress::test_utils::{make_progress, sample_progress};
-    pub use metadata_fetcher::test_utils::{
-        MockMetadataFetcher, sample_ffprobe_audio_stream, sample_ffprobe_format,
-        sample_ffprobe_raw_json, sample_ffprobe_raw_json_bytes, sample_ffprobe_subtitle_stream,
-        sample_ffprobe_video_stream,
-    };
 
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;

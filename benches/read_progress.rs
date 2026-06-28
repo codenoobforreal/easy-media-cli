@@ -1,10 +1,10 @@
 use anyhow::Result;
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 use easy_media_cli::{
-    domain::Event,
-    infra::{EventBus, EventHandler},
-    task::read_progress,
+    domain::event::{Event, EventBus, EventHandler},
+    task::command::read_progress,
 };
+
 use std::{
     fmt::Write,
     hint::black_box,

@@ -2,12 +2,12 @@
 
 mod wrapper;
 
-use crate::{domain::TaskResultPayload, infra::CommandSpec};
+use crate::{domain::event::TaskResultPayload, infra::CommandSpec};
 use anyhow::Result;
-use std::{ffi::OsStr, path::Path, time::Duration};
+use std::{ffi::OsStr, fmt, path::Path, time::Duration};
 pub use wrapper::{CommandTaskWrapper, read_progress};
 
-pub trait CommandTask: Send + Sync {
+pub trait CommandTask: Send + Sync + fmt::Debug {
     fn id(&self) -> usize;
     fn name(&self) -> &str;
     fn input(&self) -> &Path;

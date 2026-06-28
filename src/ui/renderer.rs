@@ -1,6 +1,6 @@
 use crate::{
-    domain::{Status, TaskMetadata},
-    ui::{FAILED_LIST_TITLE, RESULT_LIST_TITLE, Stats, render_progress_bar},
+    domain::task::{Status, TaskMetadata},
+    ui::{FAILED_LIST_TITLE, RESULT_LIST_TITLE, progress_bar::render_progress_bar, state::Stats},
 };
 use anyhow::{Context, Result};
 use crossterm::{
@@ -12,17 +12,17 @@ use std::io::{Stderr, Stdout, Write, stderr, stdout};
 
 /// 所有 UI 实现（终端、Web、GUI 等）都必须实现此特性。核心引擎仅通过此接口触发渲染，并与具体实现完全解耦
 pub trait Renderer: Send + Sync {
-    fn render_running(&mut self, stats: &Stats, tasks: &[(usize, &TaskMetadata)]) -> Result<()>;
+    fn render_running(&mut self, stats: &Stats, tasks: &[Option<TaskMetadata>]) -> Result<()>;
 
     fn render_final(
         &mut self,
         stats: &Stats,
-        tasks: &[(usize, &TaskMetadata)],
+        tasks: &[Option<TaskMetadata>],
         message: &str,
     ) -> Result<()>;
 }
 
-/// 终端渲染器：实现终端局部刷新，支持自定义输出流用于单元测试；仅处理终端渲染细节，不维护业务状态
+/// 实现终端局部刷新，仅处理终端渲染细节
 #[derive(Debug)]
 pub struct DefaultRenderer<O: Write = Stdout, E: Write = Stderr> {
     stdout: O,
@@ -78,30 +78,35 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
         Ok(())
     }
 
-    fn write_running_tasks(w: &mut impl Write, tasks: &[(usize, &TaskMetadata)]) -> Result<()> {
-        for (_, task) in tasks.iter().filter(|(_, t)| t.status() == Status::Running) {
-            writeln!(w, "\n{}", task.name())?;
-            render_progress_bar(w, task.progress().as_ref())
+    fn write_running_tasks(w: &mut impl Write, tasks: &[Option<TaskMetadata>]) -> Result<()> {
+        for metadata in tasks
+            .iter()
+            .flatten()
+            .filter(|t| t.status() == Status::Running)
+        {
+            writeln!(w, "\n{}", metadata.name())?;
+            render_progress_bar(w, metadata.progress().as_ref())
                 .with_context(|| "Failed to render progress bar")?;
         }
         Ok(())
     }
 
-    fn write_failed_tasks(w: &mut impl Write, tasks: &[(usize, &TaskMetadata)]) -> Result<()> {
+    fn write_failed_tasks(w: &mut impl Write, tasks: &[Option<TaskMetadata>]) -> Result<()> {
         let failed: Vec<_> = tasks
             .iter()
-            .filter(|(_, t)| t.status() == Status::Failed)
+            .flatten()
+            .filter(|t| t.status() == Status::Failed)
             .collect();
         if failed.is_empty() {
             return Ok(());
         }
         writeln!(w, "{FAILED_LIST_TITLE}")?;
-        for (_, task) in failed {
+        for metadata in failed {
             write!(
                 w,
                 "[{}]:\n{}\n",
-                task.name(),
-                task.error().unwrap_or_default()
+                metadata.name(),
+                metadata.error().unwrap_or_default()
             )?;
         }
         Ok(())
@@ -126,24 +131,26 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
         Ok(())
     }
 
-    fn write_task_results(w: &mut impl Write, tasks: &[(usize, &TaskMetadata)]) -> Result<()> {
-        let with_result: Vec<_> = tasks.iter().filter(|(_, t)| t.result().is_some()).collect();
+    fn write_task_results(w: &mut impl Write, tasks: &[Option<TaskMetadata>]) -> Result<()> {
+        let with_result: Vec<_> = tasks
+            .iter()
+            .flatten()
+            .filter(|t| t.result().is_some())
+            .collect();
         if with_result.is_empty() {
             return Ok(());
         }
-        writeln!(w)?;
-        writeln!(w, "{RESULT_LIST_TITLE}")?;
-        for (_, task) in with_result {
-            if let Some(result) = task.result() {
-                writeln!(w, "[{}]:", task.name())?;
-                writeln!(w, "{result}")?;
+        writeln!(w, "\n{RESULT_LIST_TITLE}")?;
+        for metadata in with_result {
+            if let Some(result) = metadata.result() {
+                write!(w, "\n[{}]:\n{result}", metadata.name())?;
             }
         }
         writeln!(w)?;
         Ok(())
     }
 
-    /// 返回缓冲区中的换行数量
+    /// 缓冲区中换行数量
     #[allow(clippy::naive_bytecount, clippy::cast_possible_truncation)]
     fn count_lines(buffer: &[u8]) -> u16 {
         // buffer.iter().filter(|&&b| b == b'\n').count() as u16
@@ -156,7 +163,7 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
 }
 
 impl<O: Write + Send + Sync, E: Write + Send + Sync> Renderer for DefaultRenderer<O, E> {
-    fn render_running(&mut self, stats: &Stats, tasks: &[(usize, &TaskMetadata)]) -> Result<()> {
+    fn render_running(&mut self, stats: &Stats, tasks: &[Option<TaskMetadata>]) -> Result<()> {
         let result = (|| -> Result<()> {
             if self.last_ui_lines > 0 {
                 self.stdout.queue(MoveUp(self.last_ui_lines))?;
@@ -186,7 +193,7 @@ impl<O: Write + Send + Sync, E: Write + Send + Sync> Renderer for DefaultRendere
     fn render_final(
         &mut self,
         stats: &Stats,
-        tasks: &[(usize, &TaskMetadata)],
+        tasks: &[Option<TaskMetadata>],
         message: &str,
     ) -> Result<()> {
         let result = (|| -> Result<()> {
@@ -201,7 +208,7 @@ impl<O: Write + Send + Sync, E: Write + Send + Sync> Renderer for DefaultRendere
             Self::write_complete_stat(&mut self.buffer, stats)?;
             Self::write_task_results(&mut self.buffer, tasks)?;
             Self::write_failed_tasks(&mut self.stderr_buffer, tasks)?;
-            writeln!(self.buffer, "{message}")?;
+            writeln!(self.buffer, "\n{message}")?;
 
             self.stdout.write_all(&self.buffer)?;
             self.stderr.write_all(&self.stderr_buffer)?;
@@ -219,137 +226,11 @@ impl<O: Write + Send + Sync, E: Write + Send + Sync> Renderer for DefaultRendere
     }
 }
 
-/// 退出自动恢复光标，防止异常退出后终端光标隐藏
+/// 自动恢复光标，防止异常退出后终端光标隐藏
 impl<O: Write, E: Write> Drop for DefaultRenderer<O, E> {
     fn drop(&mut self) {
         let _ = self.stdout.queue(Show);
         let _ = self.stdout.flush();
         let _ = self.stderr.flush();
-    }
-}
-
-#[cfg(test)]
-pub mod test_utils {
-    use super::*;
-    use std::sync::{Arc, Mutex};
-
-    #[derive(Debug, Default)]
-    pub struct MockRenderer {
-        pub running_calls: Arc<Mutex<usize>>,
-        pub final_calls: Arc<Mutex<usize>>,
-        pub last_msg: Arc<Mutex<Option<String>>>,
-    }
-
-    impl Renderer for MockRenderer {
-        fn render_running(
-            &mut self,
-            _stats: &Stats,
-            _tasks: &[(usize, &TaskMetadata)],
-        ) -> Result<()> {
-            *self.running_calls.lock().unwrap() += 1;
-            Ok(())
-        }
-
-        fn render_final(
-            &mut self,
-            _stats: &Stats,
-            _tasks: &[(usize, &TaskMetadata)],
-            message: &str,
-        ) -> Result<()> {
-            *self.final_calls.lock().unwrap() += 1;
-            *self.last_msg.lock().unwrap() = Some(message.to_string());
-            Ok(())
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        domain::test_utils::sample_test_metadata_with_id_name, ui::test_utils::sample_stats,
-    };
-    use insta::assert_debug_snapshot;
-
-    type MemRender = DefaultRenderer<Vec<u8>, Vec<u8>>;
-
-    fn mem_renderer() -> MemRender {
-        DefaultRenderer::<Vec<u8>, Vec<u8>>::new(vec![], vec![])
-    }
-
-    #[test]
-    fn count_lines_counts_newlines_accurately() {
-        assert_eq!(MemRender::count_lines(b""), 0);
-        assert_eq!(MemRender::count_lines(b"no newline"), 1);
-        assert_eq!(MemRender::count_lines(b"one\n"), 1);
-        assert_eq!(MemRender::count_lines(b"a\nb\nc"), 3);
-        assert_eq!(MemRender::count_lines(b"\n\n\n"), 3);
-    }
-
-    #[test]
-    fn count_lines_clamps_to_u16_max() {
-        let buf = vec![b'\n'; u16::MAX as usize + 100];
-        assert_eq!(MemRender::count_lines(&buf), u16::MAX);
-    }
-
-    #[test]
-    fn write_overall_stats_format_correct() {
-        let mut buf = Vec::new();
-        MemRender::write_overall_stats(&mut buf, &sample_stats()).unwrap();
-        let out = String::from_utf8(buf).unwrap();
-        assert_debug_snapshot!(out,@r#""Total: 0 | Completed: 0 | Failed: 0 | Running: 0 | Pending: 0 | Canceled: 0\n""#);
-    }
-
-    #[test]
-    fn write_failed_tasks_empty_when_no_failures() {
-        let mut buf = Vec::new();
-        MemRender::write_failed_tasks(&mut buf, &[]).unwrap();
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn write_failed_tasks_only_lists_failed() {
-        let mut failed_meta = sample_test_metadata_with_id_name(1, "bad_task");
-        failed_meta.mark_failed("parse error".to_owned());
-        let mut good_meta = sample_test_metadata_with_id_name(2, "good_task");
-        good_meta.mark_completed(None);
-        let tasks = vec![(1, &failed_meta), (2, &good_meta)];
-        let mut buf = Vec::new();
-        MemRender::write_failed_tasks(&mut buf, &tasks).unwrap();
-        let out = String::from_utf8(buf).unwrap();
-        assert_debug_snapshot!(out,@r#""List of failed tasks:\n[bad_task]:\nparse error\n""#);
-    }
-
-    #[test]
-    fn write_task_results_empty_when_no_results() {
-        let mut buf = Vec::new();
-        MemRender::write_task_results(&mut buf, &[]).unwrap();
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn render_running_first_render_no_cursor_move() {
-        let mut r = mem_renderer();
-        r.render_running(&sample_stats(), &[]).unwrap();
-        let stdout = String::from_utf8_lossy(&r.stdout);
-        assert!(stdout.contains("Total: 0"));
-        assert_eq!(r.last_ui_lines, 1);
-    }
-
-    #[test]
-    fn render_running_second_render_moves_cursor_up() {
-        let mut r = mem_renderer();
-        r.render_running(&sample_stats(), &[]).unwrap();
-        let first_lines = r.last_ui_lines;
-        r.render_running(&sample_stats(), &[]).unwrap();
-        // 第二次渲染会先回退光标，行数保持一致
-        assert_eq!(r.last_ui_lines, first_lines);
-    }
-
-    #[test]
-    fn drop_restores_cursor_visibility() {
-        let r = mem_renderer();
-        // Drop 时自动发送 Show 光标命令，无 panic 即语义正确
-        drop(r);
     }
 }

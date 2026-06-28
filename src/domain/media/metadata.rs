@@ -1,23 +1,23 @@
 use crate::{
     common::{format_duration_all, human_readable_size},
-    domain::Resolution,
+    domain::media::Resolution,
 };
 use anyhow::{Result, anyhow};
 use std::{fmt, time::Duration};
 
 /// 媒体元数据
-#[derive(Debug, Clone, Default)]
-pub struct Metadata {
-    pub format: Format,
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MediaMetadata {
+    pub format: MetadataFormat,
     pub video_streams: Vec<VideoStream>,
     pub audio_streams: Vec<AudioStream>,
     // pub format_tags: HashMap<String, String>,
 }
 
 /// TODO 当前实现默认选取每种流的第一个流作为结果返回，该方式不一定准确
-impl Metadata {
+impl MediaMetadata {
     pub fn new(
-        format: Format,
+        format: MetadataFormat,
         video_streams: Vec<VideoStream>,
         audio_streams: Vec<AudioStream>,
     ) -> Self {
@@ -58,7 +58,7 @@ impl Metadata {
     }
 }
 
-impl fmt::Display for Metadata {
+impl fmt::Display for MediaMetadata {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // 容器
         writeln!(f, "Container: {}", self.format.name)?;
@@ -93,7 +93,7 @@ impl fmt::Display for Metadata {
 }
 
 /// 媒体元数据中的视频流
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct VideoStream {
     /// 编码器简称
     pub codec_name: String,
@@ -129,7 +129,7 @@ pub struct VideoStream {
 }
 
 /// 媒体元数据中的音频流
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AudioStream {
     pub codec_name: String,
     pub codec_long_name: String,
@@ -149,8 +149,8 @@ pub struct AudioStream {
 }
 
 /// 媒体元数据中的容器格式
-#[derive(Debug, Clone, Default)]
-pub struct Format {
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MetadataFormat {
     /// 媒体文件完整路径与文件名
     pub filename: String,
     /// FFmpeg解封装器简称；逗号分隔列表代表该解封装器支持的全部封装格式

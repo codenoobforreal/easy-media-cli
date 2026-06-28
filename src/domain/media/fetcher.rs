@@ -1,7 +1,7 @@
-use crate::domain::Metadata;
+use crate::domain::media::MediaMetadata;
 use anyhow::Result;
 use std::path::Path;
 
-pub trait Fetcher: Send + Sync {
-    fn fetch_metadata(&self, input: &Path) -> Result<Metadata>;
+pub trait MetadataFetcher: Send + Sync {
+    fn fetch_metadata(&self, input: &Path) -> Result<MediaMetadata>;
 }

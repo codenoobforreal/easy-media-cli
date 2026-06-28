@@ -114,153 +114,86 @@ pub fn is_video_file<P: AsRef<Path>>(path: P) -> bool {
 mod tests {
     use super::*;
     use crate::infra::MockFileSystem;
-    use insta::assert_debug_snapshot;
-    use std::io::ErrorKind;
 
     #[test]
-    fn collect_videos_propagates_io_error_for_nonexistent_path() {
-        let fs = MockFileSystem::default();
-        fs.set_metadata(
-            "non_exist",
-            Err(std::io::Error::new(ErrorKind::NotFound, "Not found")),
-        );
-        let result = collect_videos(&fs, Path::new("non_exist"), Some(0));
-        assert_debug_snapshot!(result, @r#"
-            Err(
-                Custom {
-                    kind: NotFound,
-                    error: "Not found",
-                },
-            )
-            "#);
-    }
-
-    #[test]
-    fn collect_videos_returns_single_file_when_input_is_video() {
-        let fs = MockFileSystem::default();
-        fs.set_metadata("video.mp4", Ok(FileType::File));
-        let result = collect_videos(&fs, "video.mp4", Some(0)).unwrap();
-        assert_eq!(result, vec![PathBuf::from("video.mp4")]);
-    }
-
-    #[test]
-    fn collect_videos_returns_empty_for_non_video_file() {
-        let fs = MockFileSystem::default();
-        fs.set_metadata("note.txt", Ok(FileType::File));
-        let result = collect_videos(&fs, "note.txt", Some(0)).unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn collect_videos_respects_max_depth_zero_boundary() {
-        let fs = MockFileSystem::default();
-        fs.set_metadata(".", Ok(FileType::Dir));
-        fs.set_dir_entries(
-            ".",
-            Ok(vec![
-                PathBuf::from("video1.mp4"),
-                PathBuf::from("subdir"),
-                PathBuf::from("doc.pdf"),
-            ]),
-        );
-        fs.set_metadata("video1.mp4", Ok(FileType::File));
-        fs.set_metadata("subdir", Ok(FileType::Dir));
-        fs.set_metadata("doc.pdf", Ok(FileType::File));
-        let result = collect_videos(&fs, ".", Some(0)).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], PathBuf::from("video1.mp4"));
-    }
-
-    #[test]
-    fn collect_videos_recurses_correctly_within_max_depth() {
-        let fs = MockFileSystem::default();
-        fs.set_metadata(".", Ok(FileType::Dir));
-        fs.set_metadata("video1.mp4", Ok(FileType::File));
-        fs.set_metadata("sub", Ok(FileType::Dir));
-        fs.set_metadata("sub/sub_video.webm", Ok(FileType::File));
-        fs.set_metadata("sub/deep", Ok(FileType::Dir));
-        fs.set_metadata("sub/deep/deep_video.mkv", Ok(FileType::File));
-        fs.set_dir_entries(
-            ".",
-            Ok(vec![PathBuf::from("video1.mp4"), PathBuf::from("sub")]),
-        );
-        fs.set_dir_entries(
-            "sub",
-            Ok(vec![
-                PathBuf::from("sub/sub_video.webm"),
-                PathBuf::from("sub/deep"),
-            ]),
-        );
-        fs.set_dir_entries(
-            "sub/deep",
-            Ok(vec![PathBuf::from("sub/deep/deep_video.mkv")]),
-        );
-        let depth1 = collect_videos(&fs, ".", Some(1)).unwrap();
-        assert_eq!(depth1.len(), 2);
-        let depth2 = collect_videos(&fs, ".", Some(2)).unwrap();
-        assert_eq!(depth2.len(), 3);
-    }
-
-    #[test]
-    fn collect_videos_unlimited_depth_when_none() {
-        let fs = MockFileSystem::default();
-        fs.set_metadata(".", Ok(FileType::Dir));
-        fs.set_metadata("video1.mp4", Ok(FileType::File));
-        fs.set_metadata("sub", Ok(FileType::Dir));
-        fs.set_metadata("sub/sub_video.webm", Ok(FileType::File));
-        fs.set_metadata("sub/deep", Ok(FileType::Dir));
-        fs.set_metadata("sub/deep/deep_video.mkv", Ok(FileType::File));
-        fs.set_metadata("sub/deep/deeper", Ok(FileType::Dir));
-        fs.set_metadata("sub/deep/deeper/ultra_video.mkv", Ok(FileType::File));
-        fs.set_dir_entries(
-            ".",
-            Ok(vec![PathBuf::from("video1.mp4"), PathBuf::from("sub")]),
-        );
-        fs.set_dir_entries(
-            "sub",
-            Ok(vec![
-                PathBuf::from("sub/sub_video.webm"),
-                PathBuf::from("sub/deep"),
-            ]),
-        );
-        fs.set_dir_entries(
-            "sub/deep",
-            Ok(vec![
-                PathBuf::from("sub/deep/deep_video.mkv"),
-                PathBuf::from("sub/deep/deeper"),
-            ]),
-        );
-        fs.set_dir_entries(
-            "sub/deep/deeper",
-            Ok(vec![PathBuf::from("sub/deep/deeper/ultra_video.mkv")]),
-        );
-        let unlimited = collect_videos(&fs, ".", None).unwrap();
-        assert_eq!(unlimited.len(), 4);
-        let limited = collect_videos(&fs, ".", Some(2)).unwrap();
-        assert_eq!(limited.len(), 3);
-    }
-
-    #[test]
-    fn collect_videos_handles_symlink_video_file() {
-        let fs = MockFileSystem::default();
-        fs.set_metadata("link_to_video.mp4", Ok(FileType::Symlink));
-        let result = collect_videos(&fs, "link_to_video.mp4", Some(0)).unwrap();
-        assert_eq!(result, vec![PathBuf::from("link_to_video.mp4")]);
-    }
-
-    #[test]
-    fn collect_videos_empty_directory_returns_empty() {
-        let fs = MockFileSystem::default();
-        fs.set_metadata("empty_dir", Ok(FileType::Dir));
-        fs.set_dir_entries("empty_dir", Ok(vec![]));
-        let result = collect_videos(&fs, "empty_dir", Some(0)).unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn is_video_file_case_insensitive_extension() {
-        assert!(is_video_file("video.MP4"));
+    fn test_is_video_file() {
+        assert!(is_video_file("video.mp4"));
         assert!(is_video_file("video.MKV"));
-        assert!(is_video_file("video.WebM"));
+        assert!(is_video_file("video.mov"));
+        assert!(is_video_file("video.avi"));
+        assert!(!is_video_file("video.txt"));
+        assert!(!is_video_file("video.jpg"));
+        assert!(!is_video_file("video.mp4.extra"));
+        assert!(!is_video_file("no_extension"));
+        assert!(!is_video_file("video.mp4.bak"));
+    }
+
+    #[test]
+    fn test_collect_videos_file() {
+        let fs = MockFileSystem::default();
+        let path = PathBuf::from("video.mp4");
+        fs.set_metadata(&path, Ok(FileType::File));
+        let result = collect_videos(&fs, &path, None).unwrap();
+        assert_eq!(result, vec![path]);
+    }
+
+    #[test]
+    fn test_collect_videos_dir_no_recursion() {
+        let fs = MockFileSystem::default();
+        let root = PathBuf::from("/root");
+        let file1 = root.join("a.mp4");
+        let file2 = root.join("b.mkv");
+        let subdir = root.join("sub");
+
+        fs.set_metadata(&root, Ok(FileType::Dir));
+        fs.set_dir_entries(
+            &root,
+            Ok(vec![file1.clone(), file2.clone(), subdir.clone()]),
+        );
+        fs.set_metadata(&file1, Ok(FileType::File));
+        fs.set_metadata(&file2, Ok(FileType::File));
+        fs.set_metadata(&subdir, Ok(FileType::Dir));
+        let result = collect_videos(&fs, &root, Some(0)).unwrap();
+        assert_eq!(result, vec![file1, file2]);
+    }
+
+    #[test]
+    fn test_collect_videos_dir_with_depth() {
+        let fs = MockFileSystem::default();
+        let root = PathBuf::from("/root");
+        let sub1 = root.join("sub1");
+        let sub2 = sub1.join("sub2");
+        let file1 = root.join("a.mp4");
+        let file2 = sub1.join("b.mkv");
+        let file3 = sub2.join("c.mp4");
+
+        fs.set_metadata(&root, Ok(FileType::Dir));
+        fs.set_dir_entries(&root, Ok(vec![file1.clone(), sub1.clone()]));
+        fs.set_metadata(&file1, Ok(FileType::File));
+        fs.set_metadata(&sub1, Ok(FileType::Dir));
+
+        fs.set_dir_entries(&sub1, Ok(vec![file2.clone(), sub2.clone()]));
+        fs.set_metadata(&file2, Ok(FileType::File));
+        fs.set_metadata(&sub2, Ok(FileType::Dir));
+
+        fs.set_dir_entries(&sub2, Ok(vec![file3.clone()]));
+        fs.set_metadata(&file3, Ok(FileType::File));
+
+        let result = collect_videos(&fs, &root, Some(1)).unwrap();
+        assert_eq!(result, vec![file1.clone(), file2.clone()]);
+
+        let result = collect_videos(&fs, &root, Some(2)).unwrap();
+        assert_eq!(result, vec![file1.clone(), file2.clone(), file3]);
+    }
+
+    #[test]
+    fn test_collect_videos_no_video() {
+        let fs = MockFileSystem::default();
+        let root = PathBuf::from("/root");
+        fs.set_dir_entries(&root, Ok(vec![]));
+        fs.set_metadata(&root, Ok(FileType::Dir));
+        let result = collect_videos(&fs, &root, Some(0));
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 }

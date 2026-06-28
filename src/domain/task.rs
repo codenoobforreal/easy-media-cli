@@ -1,9 +1,10 @@
-use crate::{
-    domain::{CancelToken, TaskResultPayload},
-    infra::{EventBus, Progress},
+use crate::domain::{
+    cancel_token::CancelToken,
+    event::{EventBus, TaskResultPayload},
+    progress::Progress,
 };
 use anyhow::Result;
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,7 +15,7 @@ pub enum TaskError {
     Failed(#[from] anyhow::Error),
 }
 
-pub trait Task: Send + Sync {
+pub trait Task: Send + Sync + fmt::Debug {
     fn id(&self) -> usize;
     fn name(&self) -> &str;
     fn run(
@@ -110,14 +111,6 @@ impl TaskMetadata {
         self.result = None;
     }
 
-    pub fn set_result(&mut self, result: Option<TaskResultPayload>) {
-        debug_assert!(
-            self.status == Status::Completed,
-            "set_result should only be called when status is Completed"
-        );
-        self.result = result;
-    }
-
     pub fn set_error(&mut self, err: Option<impl Into<String>>) {
         self.error = err.map(Into::into);
     }
@@ -148,10 +141,10 @@ impl MetadataBuilder {
         self
     }
 
-    // pub fn status(mut self, status: Status) -> Self {
-    //     self.status = status;
-    //     self
-    // }
+    pub fn status(mut self, status: Status) -> Self {
+        self.status = status;
+        self
+    }
 
     // pub fn progress(mut self, progress: Option<Progress>) -> Self {
     //     self.progress = progress;
@@ -175,126 +168,53 @@ impl MetadataBuilder {
     }
 }
 
-#[allow(clippy::type_complexity)]
 #[cfg(test)]
-pub mod test_utils {
+mod tests {
     use super::*;
-    use anyhow::anyhow;
-    use std::{fmt, sync::Mutex};
+    use crate::{common::approx_eq, domain::event::TaskResultPayload};
+    use std::{path::PathBuf, time::Duration};
 
-    pub struct MockTask {
-        id: usize,
-        name: String,
-        run_result: Arc<Mutex<Option<Result<Option<TaskResultPayload>, TaskError>>>>,
-        pub run_called: Arc<Mutex<bool>>,
-        #[allow(clippy::type_complexity)]
-        on_run: Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>,
-    }
+    #[test]
+    fn test_task_metadata_status_transitions() {
+        let mut meta = TaskMetadata::builder().id(1).name("test").build();
+        assert_eq!(meta.status(), Status::Pending);
 
-    impl Default for MockTask {
-        fn default() -> Self {
-            Self {
-                id: 0,
-                name: String::new(),
-                run_result: Arc::new(Mutex::new(Some(Ok(None)))),
-                run_called: Arc::new(Mutex::new(false)),
-                on_run: Arc::new(Mutex::new(None)),
-            }
-        }
-    }
+        meta.mark_running(Some(Progress::new(10.0, Duration::ZERO, None)));
+        assert_eq!(meta.status(), Status::Running);
+        assert!(approx_eq(
+            f64::from(meta.progress().unwrap().percentage()),
+            10.0,
+            0.1
+        ));
 
-    impl fmt::Debug for MockTask {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("MockTask")
-                .field("id", &self.id)
-                .field("name", &self.name)
-                .field("run_called", &*self.run_called.lock().unwrap())
-                .field("run_result", &"<hidden Result<(), anyhow::Error>>")
-                .field("on_run", &"<opaque callback>")
-                .finish()
-        }
-    }
+        meta.mark_completed(None);
+        assert_eq!(meta.status(), Status::Completed);
+        assert!(meta.result().is_none());
+        assert!(meta.error().is_none());
 
-    impl Clone for MockTask {
-        fn clone(&self) -> Self {
-            Self {
-                id: self.id,
-                name: self.name.clone(),
-                run_result: Arc::clone(&self.run_result),
-                run_called: Arc::clone(&self.run_called),
-                on_run: Arc::clone(&self.on_run),
-            }
-        }
-    }
+        let mut meta = TaskMetadata::builder()
+            .id(1)
+            .name("test")
+            .status(Status::Running)
+            .build();
+        let result = TaskResultPayload::VideoEncoder {
+            output_path: PathBuf::from("out.mp4"),
+            size_bytes: Some(1000),
+        };
+        meta.mark_completed(Some(result));
+        assert!(meta.result().is_some());
+        assert!(meta.error().is_none());
 
-    impl MockTask {
-        pub fn new(id: usize, name: &str) -> Self {
-            Self {
-                id,
-                name: name.into(),
-                run_result: Arc::new(Mutex::new(Some(Ok(None)))),
-                run_called: Arc::new(Mutex::new(false)),
-                on_run: Arc::new(Mutex::new(None)),
-            }
-        }
+        let mut meta = TaskMetadata::builder().id(2).name("test2").build();
+        meta.mark_failed("error".to_string());
+        assert_eq!(meta.status(), Status::Failed);
+        assert_eq!(meta.error(), Some("error"));
+        assert_eq!(meta.result(), None);
 
-        pub fn set_fail(&self, err_msg: &'static str) {
-            *self.run_result.lock().unwrap() = Some(Err(TaskError::Failed(anyhow!(err_msg))));
-        }
-
-        pub fn set_cancelled(&self) {
-            *self.run_result.lock().unwrap() = Some(Err(TaskError::Cancelled));
-        }
-
-        pub fn set_on_run<F: Fn() + Send + Sync + 'static>(&self, f: F) {
-            *self.on_run.lock().unwrap() = Some(Arc::new(f));
-        }
-
-        pub fn was_run(&self) -> bool {
-            *self.run_called.lock().unwrap()
-        }
-
-        pub fn reset(&self) {
-            *self.run_called.lock().unwrap() = false;
-            *self.run_result.lock().unwrap() = Some(Ok(None));
-            *self.on_run.lock().unwrap() = None;
-        }
-    }
-
-    impl Task for MockTask {
-        fn id(&self) -> usize {
-            self.id
-        }
-
-        fn name(&self) -> &str {
-            &self.name
-        }
-
-        fn run(
-            &self,
-            _event_bus: &Arc<dyn EventBus>,
-            _cancel_token: &dyn CancelToken,
-        ) -> Result<Option<TaskResultPayload>, TaskError> {
-            *self.run_called.lock().unwrap() = true;
-
-            let on_run = self.on_run.lock().unwrap();
-            if let Some(callback) = &*on_run {
-                callback();
-            }
-
-            let mut res_guard = self.run_result.lock().unwrap();
-            res_guard.take().unwrap_or(Ok(None))
-        }
-    }
-
-    pub fn sample_test_metadata(id: usize) -> TaskMetadata {
-        TaskMetadata::builder()
-            .id(id)
-            .name(format!("sample_task_{id}"))
-            .build()
-    }
-
-    pub fn sample_test_metadata_with_id_name(id: usize, name: &str) -> TaskMetadata {
-        TaskMetadata::builder().id(id).name(name).build()
+        let mut meta = TaskMetadata::builder().id(3).name("test3").build();
+        meta.mark_cancelled();
+        assert_eq!(meta.status(), Status::Cancelled);
+        assert_eq!(meta.error(), None);
+        assert_eq!(meta.result(), None);
     }
 }

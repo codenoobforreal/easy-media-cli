@@ -1,7 +1,7 @@
 use crate::{
-    domain::TaskResultPayload,
+    domain::event::TaskResultPayload,
     infra::{CommandSpec, FfprobeRawJson, convert_raw_to_metadata},
-    task::{CommandTask, ExecutionMode},
+    task::command::{CommandTask, ExecutionMode},
     tasks::{LOG_ERROR_ARGS, OUTPUT_FORMAT_JSON_ARGS, SHOW_ENTRIES_ARGS},
 };
 use anyhow::{Result, anyhow};
@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MediaMetadataGetter {
     id: usize,
     name: String,

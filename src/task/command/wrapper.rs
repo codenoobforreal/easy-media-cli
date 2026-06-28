@@ -2,12 +2,16 @@
 
 use crate::{
     common::join_errors_with_summary,
-    domain::{CancelToken, Event, Task, TaskError, TaskResultPayload},
-    infra::{
-        CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, EventBus,
-        FfmpegProgressParser, FileSystem, ProgressTracker, StreamingCommandRunnerExt,
+    domain::{
+        cancel_token::CancelToken,
+        event::{Event, EventBus, TaskResultPayload},
+        task::{Task, TaskError},
     },
-    task::{ExecutionMode, command::CommandTask},
+    infra::{
+        CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, FfmpegProgressParser,
+        FileSystem, ProgressTracker, StreamingCommandRunnerExt,
+    },
+    task::command::{CommandTask, ExecutionMode},
 };
 use anyhow::{Context, Result, anyhow};
 use std::{
@@ -30,6 +34,7 @@ struct IoThreadHandles {
 /// 命令任务包装器
 /// - 组合了「具体业务任务」和「通用依赖」
 /// - 给包装器实现通用 `Task` 接口，才能被 `Runner` 当作通用 `Task` 执行
+#[derive(Debug)]
 pub struct CommandTaskWrapper<T: CommandTask> {
     /// 嵌套的具体任务：Thumbnail、Transcode、ExtractAudio 等
     inner: T,

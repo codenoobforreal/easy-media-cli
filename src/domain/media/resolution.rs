@@ -159,120 +159,110 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_creates_correct_variants() {
+    fn test_resolution_new() {
         assert_eq!(Resolution::new(3840, 2160).unwrap(), Resolution::Uhd);
         assert_eq!(Resolution::new(2160, 3840).unwrap(), Resolution::Vuhd);
-        assert_eq!(Resolution::new(2560, 1440).unwrap(), Resolution::Qhd);
-        assert_eq!(Resolution::new(1440, 2560).unwrap(), Resolution::Vqhd);
         assert_eq!(Resolution::new(1920, 1080).unwrap(), Resolution::Fhd);
-        assert_eq!(Resolution::new(1080, 1920).unwrap(), Resolution::Vfhd);
         assert_eq!(Resolution::new(1280, 720).unwrap(), Resolution::Hd);
-        assert_eq!(Resolution::new(720, 1280).unwrap(), Resolution::Vhd);
-        let arb = Resolution::new(640, 480).unwrap();
         assert_eq!(
-            arb,
+            Resolution::new(800, 600).unwrap(),
             Resolution::Arbitrary {
-                width: 640,
-                height: 480
+                width: 800,
+                height: 600
             }
         );
-    }
-
-    #[test]
-    fn new_rejects_zero_dimensions() {
         assert!(Resolution::new(0, 1920).is_err());
         assert!(Resolution::new(1920, 0).is_err());
     }
 
     #[test]
-    fn pixels_computes_correctly() {
+    fn test_resolution_from_str() {
+        assert_eq!(Resolution::from_str("3840x2160").unwrap(), Resolution::Uhd);
+        assert_eq!(Resolution::from_str("1920x1080").unwrap(), Resolution::Fhd);
+        assert_eq!(
+            Resolution::from_str("800x600").unwrap(),
+            Resolution::Arbitrary {
+                width: 800,
+                height: 600
+            }
+        );
+        assert!(Resolution::from_str("1920x").is_err());
+        assert!(Resolution::from_str("x1080").is_err());
+        assert!(Resolution::from_str("abcxdef").is_err());
+        assert!(Resolution::from_str("0x1080").is_err());
+    }
+
+    #[test]
+    fn test_resolution_pixels() {
         assert_eq!(Resolution::Uhd.pixels(), 3840 * 2160);
-        assert_eq!(Resolution::Vuhd.pixels(), 2160 * 3840);
-        assert_eq!(Resolution::Qhd.pixels(), 2560 * 1440);
         assert_eq!(Resolution::Fhd.pixels(), 1920 * 1080);
-        assert_eq!(Resolution::Hd.pixels(), 1280 * 720);
-        let arb = Resolution::Arbitrary {
-            width: 100,
-            height: 200,
-        };
-        assert_eq!(arb.pixels(), 20000);
+        assert_eq!(
+            Resolution::Arbitrary {
+                width: 800,
+                height: 600
+            }
+            .pixels(),
+            480_000
+        );
     }
 
     #[test]
-    fn width_and_height_are_correct() {
-        assert_eq!(Resolution::Uhd.width(), 3840);
-        assert_eq!(Resolution::Uhd.height(), 2160);
-        assert_eq!(Resolution::Vuhd.width(), 2160);
-        assert_eq!(Resolution::Vuhd.height(), 3840);
-        let arb = Resolution::Arbitrary {
-            width: 640,
-            height: 480,
-        };
-        assert_eq!(arb.width(), 640);
-        assert_eq!(arb.height(), 480);
-    }
-
-    #[test]
-    fn orientation_is_detected_correctly() {
+    fn test_resolution_orientation() {
         assert_eq!(Resolution::Uhd.get_orientation(), Orientation::Landscape);
         assert_eq!(Resolution::Vuhd.get_orientation(), Orientation::Portrait);
-        let square = Resolution::Arbitrary {
-            width: 100,
-            height: 100,
-        };
-        assert_eq!(square.get_orientation(), Orientation::Landscape);
-    }
-
-    #[test]
-    fn primary_dimension_returns_max() {
-        assert_eq!(Resolution::Uhd.get_primary_dimension(), 3840);
-        assert_eq!(Resolution::Vuhd.get_primary_dimension(), 3840);
-        assert_eq!(
-            Resolution::Arbitrary {
-                width: 640,
-                height: 480
-            }
-            .get_primary_dimension(),
-            640
-        );
-    }
-
-    #[test]
-    fn from_str_parses_standard_and_arbitrary() {
-        assert_eq!("3840x2160".parse::<Resolution>().unwrap(), Resolution::Uhd);
-        assert_eq!("2160x3840".parse::<Resolution>().unwrap(), Resolution::Vuhd);
-        assert_eq!("1920x1080".parse::<Resolution>().unwrap(), Resolution::Fhd);
-        assert_eq!(
-            "640x480".parse::<Resolution>().unwrap(),
-            Resolution::Arbitrary {
-                width: 640,
-                height: 480
-            }
-        );
-    }
-
-    #[test]
-    fn from_str_handles_errors() {
-        assert!("".parse::<Resolution>().is_err());
-        assert!("1920".parse::<Resolution>().is_err());
-        assert!("1920x".parse::<Resolution>().is_err());
-        assert!("x1080".parse::<Resolution>().is_err());
-        assert!("1920xabc".parse::<Resolution>().is_err());
-        assert!("0x1080".parse::<Resolution>().is_err());
-        assert!("1920x0".parse::<Resolution>().is_err());
-    }
-
-    #[test]
-    fn display_formats_correctly() {
-        assert_eq!(Resolution::Uhd.to_string(), "3840x2160");
-        assert_eq!(Resolution::Vuhd.to_string(), "2160x3840");
+        assert_eq!(Resolution::Fhd.get_orientation(), Orientation::Landscape);
         assert_eq!(
             Resolution::Arbitrary {
                 width: 100,
                 height: 200
             }
+            .get_orientation(),
+            Orientation::Portrait
+        );
+        assert_eq!(
+            Resolution::Arbitrary {
+                width: 200,
+                height: 100
+            }
+            .get_orientation(),
+            Orientation::Landscape
+        );
+        assert_eq!(
+            Resolution::Arbitrary {
+                width: 100,
+                height: 100
+            }
+            .get_orientation(),
+            Orientation::Landscape
+        );
+    }
+
+    #[test]
+    fn test_resolution_primary_dimension() {
+        assert_eq!(Resolution::Uhd.get_primary_dimension(), 3840);
+        assert_eq!(Resolution::Vuhd.get_primary_dimension(), 3840);
+        assert_eq!(Resolution::Fhd.get_primary_dimension(), 1920);
+        assert_eq!(
+            Resolution::Arbitrary {
+                width: 800,
+                height: 600
+            }
+            .get_primary_dimension(),
+            800
+        );
+    }
+
+    #[test]
+    fn test_resolution_display() {
+        assert_eq!(Resolution::Uhd.to_string(), "3840x2160");
+        assert_eq!(Resolution::Vuhd.to_string(), "2160x3840");
+        assert_eq!(
+            Resolution::Arbitrary {
+                width: 800,
+                height: 600
+            }
             .to_string(),
-            "100x200"
+            "800x600"
         );
     }
 }

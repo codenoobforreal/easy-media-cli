@@ -1,11 +1,11 @@
 use crate::{
     common::human_readable_size,
-    domain::{Metadata, TaskMetadata},
-    infra::Progress,
+    domain::{media::MediaMetadata, progress::Progress, task::TaskMetadata},
 };
-use std::{fmt, path::PathBuf};
+use anyhow::Result;
+use std::{fmt, path::PathBuf, sync::Arc};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TaskResultPayload {
     VideoEncoder {
         output_path: PathBuf,
@@ -16,33 +16,8 @@ pub enum TaskResultPayload {
     },
 
     MediaMetadataGetter {
-        metadata: Metadata,
+        metadata: MediaMetadata,
     },
-}
-
-impl TaskResultPayload {
-    pub fn summary(&self) -> String {
-        match self {
-            TaskResultPayload::VideoEncoder {
-                output_path,
-                size_bytes,
-            } => {
-                format!(
-                    "Output: {} ({} bytes)",
-                    output_path.display(),
-                    size_bytes.unwrap_or_default()
-                )
-            }
-
-            TaskResultPayload::ThumbnailGenerator { output_dir } => {
-                format!("Generated thumbnails in {}", output_dir.display())
-            }
-
-            TaskResultPayload::MediaMetadataGetter { metadata } => {
-                format!("{metadata:?}")
-            }
-        }
-    }
 }
 
 impl fmt::Display for TaskResultPayload {
@@ -108,4 +83,15 @@ pub enum Event {
     },
 
     Shutdown,
+}
+
+pub type EventHandler = Arc<dyn Fn(Event) -> Result<()> + Send + Sync>;
+
+/// 同步发布订阅
+pub trait EventBus: Send + Sync {
+    /// 尽力交付事件给所有订阅者，单个订阅者的错误会被忽略（后续可添加记录），不会中断发布流程
+    fn publish(&self, event: Event) -> Result<()>;
+    /// 任一订阅者失败则立即返回错误，后续订阅者不会收到事件
+    fn publish_critical(&self, event: Event) -> Result<()>;
+    fn subscribe(&self, handler: EventHandler) -> Result<()>;
 }

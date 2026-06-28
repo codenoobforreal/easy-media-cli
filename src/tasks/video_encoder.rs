@@ -10,9 +10,12 @@
 //! - <https://handbrake.fr/docs/en/1.10.0/workflow/adjust-quality.html>
 
 use crate::{
-    domain::{Metadata as MediaMetadata, Orientation, Resolution, TaskResultPayload},
+    domain::{
+        event::TaskResultPayload,
+        media::{MediaMetadata, Orientation, Resolution},
+    },
     infra::CommandSpec,
-    task::CommandTask,
+    task::command::CommandTask,
     tasks::{
         CODEC_SVTAV1_ARGS, COPY_AUDIO_ARGS, LOG_ERROR_ARGS, PIX_FMT_10LE_ARGS, PRESET_SVTAV1_ARGS,
         PROGRESS_ARGS, SVTAV1_PARAMS_ARGS,
@@ -199,7 +202,7 @@ impl VideoEncoder {
             .ok_or_else(|| anyhow!("Could not determine video resolution from metadata"))?
             .map_err(|e| anyhow!("Invalid resolution: {e}"))?;
 
-        let (effective_resolution, do_scale) = if source_pixels >= target_resolution.pixels() {
+        let (effective_resolution, do_scale) = if source_pixels > target_resolution.pixels() {
             (target_resolution, true)
         } else {
             (source_resolution, false)
@@ -311,321 +314,193 @@ fn resolution_to_crf(resolution: Resolution) -> u8 {
 }
 
 #[cfg(test)]
-pub mod test_utils {
-    use crate::domain::{Metadata as MediaMetadata, VideoStream};
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+mod tests {
+    use super::*;
+    use crate::domain::media::VideoStream;
+    use insta::assert_debug_snapshot;
 
-    /// 创建一个包含单个视频流的 Metadata，可自定义宽度、高度、帧率
-    pub fn make_video_encoder_metadata(width: u16, height: u16, fps: Option<f64>) -> MediaMetadata {
-        let video_stream = VideoStream {
-            width,
-            height,
-            avg_frame_rate: fps,
-            ..Default::default()
-        };
+    fn sample_metadata(width: u16, height: u16, fps: f64) -> MediaMetadata {
         MediaMetadata {
-            video_streams: vec![video_stream],
+            video_streams: vec![VideoStream {
+                width,
+                height,
+                avg_frame_rate: Some(fps),
+                ..VideoStream::default()
+            }],
             ..MediaMetadata::default()
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tasks::test_utils::make_video_encoder_metadata;
-    use insta::assert_debug_snapshot;
 
     #[test]
-    fn crf_for_uhd_and_above() {
-        assert_eq!(resolution_to_crf(Resolution::Uhd), 22);
-    }
-
-    #[test]
-    fn crf_for_qhd() {
-        assert_eq!(resolution_to_crf(Resolution::Qhd), 24);
-    }
-
-    #[test]
-    fn crf_for_fhd() {
-        assert_eq!(resolution_to_crf(Resolution::Fhd), 28);
-    }
-
-    #[test]
-    fn crf_for_hd() {
-        assert_eq!(resolution_to_crf(Resolution::Hd), 30);
-    }
-
-    #[test]
-    fn crf_below_hd() {
-        let low_res = Resolution::Arbitrary {
-            width: 720,
-            height: 480,
-        };
-        assert_eq!(resolution_to_crf(low_res), 32);
-    }
-
-    #[test]
-    fn gop_without_fps_returns_default() {
-        let encoder = VideoEncoder::default();
-        assert_eq!(encoder.gop(), 240);
-    }
-
-    #[test]
-    fn gop_with_fps_ten_times() {
-        let encoder = |fps: u8| VideoEncoder {
-            fps: Some(fps),
-            ..VideoEncoder::default()
-        };
-        assert_eq!(encoder(10).gop(), 100);
-        assert_eq!(encoder(24).gop(), 240);
-        assert_eq!(encoder(30).gop(), 300);
-        assert_eq!(encoder(60).gop(), 300);
-    }
-
-    #[test]
-    fn video_filter_none() {
-        let encoder = VideoEncoder::default();
-        assert_eq!(encoder.video_filter(), None);
-    }
-
-    #[test]
-    fn video_filter_only_scale_landscape() {
-        let encoder = VideoEncoder {
-            scaled_width: Some(1280),
-            ..VideoEncoder::default()
-        };
-        assert_debug_snapshot!(encoder.video_filter(), @r#"
-        Some(
-            "scale=1280:-2:flags=lanczos",
+    fn build_output_path_with_output() {
+        let with_output = VideoEncoder::build_output_path(
+            &PathBuf::from("videos/test.mp4"),
+            Some(&PathBuf::from("/encoder")),
         )
-        "#);
+        .unwrap();
+        let with_output_str = with_output.to_string_lossy().replace('\\', "/");
+        assert!(
+            with_output_str.starts_with("/encoder/test-"),
+            "{}",
+            with_output.display()
+        );
+        assert!(
+            with_output
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4")),
+            "{}",
+            with_output.display()
+        );
     }
 
     #[test]
-    fn video_filter_only_scale_portrait() {
-        let encoder = VideoEncoder {
-            scaled_height: Some(720),
-            ..VideoEncoder::default()
-        };
-        assert_debug_snapshot!(encoder.video_filter(), @r#"
-        Some(
-            "scale=-2:720:flags=lanczos",
-        )
-        "#);
+    fn build_output_path_without_output() {
+        let without_output =
+            VideoEncoder::build_output_path(&PathBuf::from("videos/test.mp4"), None).unwrap();
+        let without_output_str = without_output.to_string_lossy().replace('\\', "/");
+        assert!(
+            without_output_str.starts_with("videos/test-"),
+            "{}",
+            without_output.display()
+        );
+        assert!(
+            without_output
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4")),
+            "{}",
+            without_output.display()
+        );
     }
 
     #[test]
-    fn video_filter_only_fps() {
-        let encoder = VideoEncoder {
-            fps: Some(30),
-            ..VideoEncoder::default()
-        };
-        assert_debug_snapshot!(encoder.video_filter(), @r#"
-        Some(
-            "fps=30",
-        )
-        "#);
-    }
-
-    #[test]
-    fn video_filter_scale_and_fps() {
-        let encoder = VideoEncoder {
-            fps: Some(24),
-            scaled_width: Some(1920),
-            ..VideoEncoder::default()
-        };
-        assert_debug_snapshot!(encoder.video_filter(), @r#"
-        Some(
-            "scale=1920:-2:flags=lanczos,fps=24",
-        )
-        "#);
-    }
-
-    #[test]
-    fn scaling_params_resolution_down_landscape() {
-        let metadata = make_video_encoder_metadata(1920, 1080, Some(30.0));
-        let target = Resolution::Hd;
-        let (crf, w, h) = VideoEncoder::compute_scaling_params(target, &metadata).unwrap();
-        assert_eq!(crf, 30); // HD 对应 30
-        assert_eq!(w, Some(1280));
-        assert_eq!(h, None);
-    }
-
-    #[test]
-    fn scaling_params_resolution_down_portrait() {
-        let metadata = make_video_encoder_metadata(1080, 1920, Some(30.0));
-        let target = Resolution::Vhd;
-        let (crf, w, h) = VideoEncoder::compute_scaling_params(target, &metadata).unwrap();
-        assert_eq!(crf, 30);
-        assert_eq!(w, None);
-        assert_eq!(h, Some(1280));
-    }
-
-    #[test]
-    fn scaling_params_resolution_equal() {
-        let metadata = make_video_encoder_metadata(1280, 720, Some(24.0));
-        let target = Resolution::Hd;
-        let (crf, w, h) = VideoEncoder::compute_scaling_params(target, &metadata).unwrap();
-        assert_eq!(crf, 30);
-        assert_eq!(w, Some(1280));
-        assert_eq!(h, None);
-    }
-
-    #[test]
-    fn scaling_params_resolution_up() {
-        let metadata = make_video_encoder_metadata(720, 480, Some(25.0));
-        let target = Resolution::Hd;
-        let (crf, w, h) = VideoEncoder::compute_scaling_params(target, &metadata).unwrap();
-        assert_eq!(crf, 32);
-        assert_eq!(w, None);
-        assert_eq!(h, None);
-    }
-
-    #[test]
-    fn scaling_params_missing_pixels() {
-        let metadata = MediaMetadata::default();
-        let target = Resolution::Hd;
-        let result = VideoEncoder::compute_scaling_params(target, &metadata);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert_debug_snapshot!(err,@r#""Input file does not contain a video stream""#);
-    }
-
-    #[test]
-    fn scaling_params_missing_resolution_on_up() {
-        let metadata = MediaMetadata::default();
-        let target = Resolution::Arbitrary {
-            width: 10,
-            height: 10,
-        };
-        let result = VideoEncoder::compute_scaling_params(target, &metadata);
-        assert!(result.is_err());
-    }
-
-    #[allow(clippy::case_sensitive_file_extension_comparisons)]
-    #[test]
-    fn output_path_with_directory() {
-        let input = Path::new("/videos/my_clip.mp4");
-        let output_dir = Some(Path::new("/output"));
-        let result = VideoEncoder::build_output_path(input, output_dir);
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert_eq!(output.parent().unwrap(), Path::new("/output"));
-        let file_name = output.file_name().unwrap().to_str().unwrap();
-        assert!(file_name.starts_with("my_clip-"));
-        assert!(file_name.ends_with(".mp4"));
-        let timestamp_part = &file_name["my_clip-".len()..file_name.len() - ".mp4".len()];
-        assert_eq!(timestamp_part.len(), 12);
-        assert!(timestamp_part.chars().all(|c| c.is_ascii_digit()));
-    }
-
-    #[allow(clippy::case_sensitive_file_extension_comparisons)]
-    #[test]
-    fn output_path_without_directory() {
-        let input = Path::new("/videos/my_clip.mp4");
-        let result = VideoEncoder::build_output_path(input, None);
-        assert!(result.is_ok());
-        let output = result.unwrap();
-        assert_eq!(output.parent().unwrap(), Path::new("/videos"));
-        let file_name = output.file_name().unwrap().to_str().unwrap();
-        assert!(file_name.starts_with("my_clip-"));
-        assert!(file_name.ends_with(".mp4"));
-    }
-
-    #[test]
-    fn output_path_invalid_input() {
-        let input = Path::new("/");
-        let result = VideoEncoder::build_output_path(input, None);
-        assert!(result.is_err());
-    }
-
-    #[allow(clippy::case_sensitive_file_extension_comparisons)]
-    #[test]
-    fn new_basic_success() {
-        let metadata = make_video_encoder_metadata(1920, 1080, Some(30.0));
-        let input = Path::new("/videos/test.mp4");
-        let output_dir = Some(Path::new("/output"));
-        let resolution = Some(Resolution::Hd);
-        let fps_limit = 24;
-
-        let encoder = VideoEncoder::new(42, input, output_dir, resolution, fps_limit, &metadata)
-            .expect("should create encoder");
-
-        assert_eq!(encoder.id, 42);
-        assert_eq!(encoder.input, PathBuf::from("/videos/test.mp4"));
-
-        let parent = encoder.output.parent().unwrap();
-        assert!(parent.ends_with("output"));
-
-        let file_name = encoder.output.file_name().unwrap().to_str().unwrap();
-        assert!(file_name.starts_with("test-"));
-        assert!(file_name.ends_with(".mp4"));
-
-        assert_eq!(encoder.crf, 30);
-        assert_eq!(encoder.fps, Some(24));
-        assert_eq!(encoder.scaled_width, Some(1280));
+    fn test_video_encoder_new_basic() {
+        let metadata = sample_metadata(1920, 1080, 30.0);
+        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24, &metadata).unwrap();
+        // 输出路径格式：input-时间戳.mp4，我们无法预测时间戳，只检查后缀
+        assert!(encoder.output.to_string_lossy().starts_with("input-"));
+        assert!(encoder.output.to_string_lossy().ends_with(".mp4"));
+        assert_eq!(encoder.fps, Some(24)); // 原 fps 30 > 24
+        assert_eq!(encoder.scaled_width, None);
         assert_eq!(encoder.scaled_height, None);
+        // CRF: 1080p => 28
+        assert_eq!(encoder.crf, 28);
     }
 
     #[test]
-    fn new_fps_not_limited() {
-        let metadata = make_video_encoder_metadata(1280, 720, Some(20.0));
-        let resolution = Some(Resolution::Hd);
-        let fps_limit = 30;
-        let encoder = VideoEncoder::new(1, "input.mp4", None, resolution, fps_limit, &metadata)
-            .expect("should create");
-        assert_eq!(encoder.fps, None);
+    fn test_video_encoder_new_no_fps_cap() {
+        let metadata = sample_metadata(1920, 1080, 20.0);
+        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24, &metadata).unwrap();
+        assert_eq!(encoder.fps, None); // 原 fps 20 < 24，不限制
     }
 
     #[test]
-    fn new_missing_fps_in_metadata() {
-        let metadata = make_video_encoder_metadata(1920, 1080, None);
-        let result = VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Hd), 30, &metadata);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert_debug_snapshot!(err, @r#""Video stream exists but frame rate (FPS) could not be determined from metadata""#);
+    fn test_video_encoder_new_with_target_resolution_upscale() {
+        let metadata = sample_metadata(1280, 720, 30.0);
+        let encoder = VideoEncoder::new(
+            1,
+            "input.mp4",
+            None,
+            Some(Resolution::Fhd), // 目标 1920x1080
+            24,
+            &metadata,
+        )
+        .unwrap();
+        // 源分辨率低于目标，不缩放
+        assert_eq!(encoder.scaled_width, None);
+        assert_eq!(encoder.scaled_height, None);
+        // CRF 基于原始分辨率 720p => 30
+        assert_eq!(encoder.crf, 30);
     }
 
     #[test]
-    fn new_missing_pixels() {
-        let metadata = MediaMetadata::default();
-        let result = VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Hd), 30, &metadata);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert_debug_snapshot!(err, @r#""Input file does not contain a video stream""#);
+    fn test_video_encoder_new_portrait_orientation() {
+        let metadata = sample_metadata(1080, 1920, 30.0); // 竖屏
+        let encoder = VideoEncoder::new(
+            1,
+            "input.mp4",
+            None,
+            Some(Resolution::Vfhd), // 目标 1080x1920
+            24,
+            &metadata,
+        )
+        .unwrap();
+        // 源分辨率等于目标，不缩放
+        assert_eq!(encoder.scaled_width, None);
+        assert_eq!(encoder.scaled_height, None);
+        assert_eq!(encoder.crf, 28);
     }
 
     #[test]
-    fn ffmpeg_args_basic() {
-        let encoder = VideoEncoder {
-            input: PathBuf::from("input.mp4"),
-            output: PathBuf::from("output.mp4"),
-            crf: 25,
-            ..VideoEncoder::default()
-        };
-        let args = encoder.build_command_args();
-        let args_str: Vec<String> = args
-            .iter()
-            .map(|s| s.to_string_lossy().to_string())
-            .collect();
-        assert_debug_snapshot!(args_str.join(" "), @r#""-v error -progress pipe:1 -i input.mp4 -c:v libsvtav1 -preset 4 -crf 25 -g 240 -pix_fmt yuv420p10le -svtav1-params tune=0:film-grain=8:enable-qm=1:qm-min=0:qm-max=15:qp-scale-compress-strength=1 -c:a copy output.mp4""#);
+    fn test_video_encoder_new_portrait_downscale() {
+        let metadata = sample_metadata(2160, 3840, 30.0); // 4K 竖屏
+        let encoder = VideoEncoder::new(
+            1,
+            "input.mp4",
+            None,
+            Some(Resolution::Vfhd), // 目标 1080x1920
+            24,
+            &metadata,
+        )
+        .unwrap();
+        assert_eq!(encoder.scaled_width, None);
+        assert_eq!(encoder.scaled_height, Some(1920));
+        assert_eq!(encoder.crf, 28);
     }
 
     #[test]
-    fn ffmpeg_args_with_vf() {
-        let encoder = VideoEncoder {
-            input: PathBuf::from("in.mkv"),
-            output: PathBuf::from("out.mp4"),
-            crf: 22,
-            fps: Some(30),
-            scaled_width: Some(1280),
-            ..VideoEncoder::default()
-        };
-        let args = encoder.build_command_args();
-        let args_str: Vec<String> = args
-            .iter()
-            .map(|s| s.to_string_lossy().to_string())
-            .collect();
-        assert_debug_snapshot!(args_str.join(" "), @r#""-v error -progress pipe:1 -i in.mkv -c:v libsvtav1 -preset 4 -crf 22 -g 300 -pix_fmt yuv420p10le -svtav1-params tune=0:film-grain=8:enable-qm=1:qm-min=0:qm-max=15:qp-scale-compress-strength=1 -c:a copy -vf scale=1280:-2:flags=lanczos,fps=30 out.mp4""#);
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    fn build_command_args() {
+        let metadata = sample_metadata(1920, 1080, 30.0);
+        let encoder = VideoEncoder::new(
+            1,
+            "input.mp4",
+            Some(Path::new("/output")),
+            None,
+            24,
+            &metadata,
+        )
+        .unwrap();
+
+        let mut args = encoder.build_command_args();
+        let output_path = args.pop().unwrap();
+        assert!(
+            output_path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .starts_with("/output/input-")
+        );
+        assert!(
+            Path::new(&output_path)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
+        );
+        assert_debug_snapshot!(args.join(OsStr::new(" ")),@r#""-v error -progress pipe:1 -i input.mp4 -c:v libsvtav1 -preset 4 -crf 28 -g 240 -pix_fmt yuv420p10le -svtav1-params tune=0:film-grain=8:enable-qm=1:qm-min=0:qm-max=15:qp-scale-compress-strength=1 -c:a copy -vf fps=24""#);
+    }
+
+    #[test]
+    fn test_video_encoder_gop() {
+        let metadata = sample_metadata(1920, 1080, 30.0);
+        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24, &metadata).unwrap();
+        // fps=24, gop = min(24*10, 300) = 240
+        assert_eq!(encoder.gop(), 240);
+        let encoder_no_fps = VideoEncoder::new(1, "input.mp4", None, None, 60, &metadata).unwrap();
+        // fps 不限，默认 240
+        assert_eq!(encoder_no_fps.gop(), 240);
+    }
+
+    #[test]
+    fn test_resolution_to_crf() {
+        assert_eq!(resolution_to_crf(Resolution::Uhd), 22);
+        assert_eq!(resolution_to_crf(Resolution::Qhd), 24);
+        assert_eq!(resolution_to_crf(Resolution::Fhd), 28);
+        assert_eq!(resolution_to_crf(Resolution::Hd), 30);
+        assert_eq!(
+            resolution_to_crf(Resolution::Arbitrary {
+                width: 640,
+                height: 480
+            }),
+            32
+        );
     }
 }

@@ -2,13 +2,9 @@
 //! 逐个具体业务任务的实现
 //! 依赖任务编排能力与领域模型，实现具体业务逻辑
 
-mod media_metadata_getter;
-mod thumbnail_generator;
-mod video_encoder;
-
-pub use media_metadata_getter::MediaMetadataGetter;
-pub use thumbnail_generator::ThumbnailGenerator;
-pub use video_encoder::VideoEncoder;
+pub mod media_metadata_getter;
+pub mod thumbnail_generator;
+pub mod video_encoder;
 
 /// 日志级别：只输出错误信息
 pub const LOG_ERROR_ARGS: &[&str] = &["-v", "error"];
@@ -41,10 +37,3 @@ pub const COPY_AUDIO_ARGS: &[&str] = &["-c:a", "copy"];
 pub const SHOW_ENTRIES_ARGS: &[&str] = &["-show_entries", "program:format:stream:chapter"];
 /// 输出格式指定为 JSON
 pub const OUTPUT_FORMAT_JSON_ARGS: &[&str] = &["-of", "json"];
-
-#[cfg(test)]
-pub mod test_utils {
-    use super::*;
-
-    pub use video_encoder::test_utils::make_video_encoder_metadata;
-}

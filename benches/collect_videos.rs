@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use easy_media_cli::{
-    common::collect_videos,
+    common::media_scan::collect_videos,
     infra::{FileType, MockFileSystem},
 };
 use std::{
