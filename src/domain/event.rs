@@ -9,7 +9,8 @@ use std::{fmt, path::PathBuf, sync::Arc};
 pub enum TaskResultPayload {
     VideoEncoder {
         output_path: PathBuf,
-        size_bytes: Option<u64>,
+        size_bytes: u64,
+        size_change: f64,
     },
     ThumbnailGenerator {
         output_dir: PathBuf,
@@ -26,12 +27,19 @@ impl fmt::Display for TaskResultPayload {
             TaskResultPayload::VideoEncoder {
                 output_path,
                 size_bytes,
+                size_change,
             } => {
+                let change = if size_change.is_sign_positive() {
+                    format!("{:.2}% bigger", size_change.abs() * 100.0)
+                } else {
+                    format!("{:.2}% smaller", size_change.abs() * 100.0)
+                };
+
                 write!(
                     f,
-                    "Encoded video: {} ({})",
+                    "Output: {} ({} {change})",
                     output_path.display(),
-                    human_readable_size(size_bytes.unwrap_or_default())
+                    human_readable_size(*size_bytes),
                 )
             }
 

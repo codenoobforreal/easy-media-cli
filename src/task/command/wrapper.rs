@@ -50,7 +50,7 @@ impl<T: CommandTask> Task for CommandTaskWrapper<T> {
         self.inner.id()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> String {
         self.inner.name()
     }
 

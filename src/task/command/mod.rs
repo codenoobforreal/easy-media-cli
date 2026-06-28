@@ -9,7 +9,7 @@ pub use wrapper::{CommandTaskWrapper, read_progress};
 
 pub trait CommandTask: Send + Sync + fmt::Debug {
     fn id(&self) -> usize;
-    fn name(&self) -> &str;
+    fn name(&self) -> String;
     fn input(&self) -> &Path;
     fn output(&self) -> Option<&Path>;
     fn file_name(&self) -> Option<&OsStr>;

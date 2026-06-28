@@ -17,7 +17,7 @@ pub enum TaskError {
 
 pub trait Task: Send + Sync + fmt::Debug {
     fn id(&self) -> usize;
-    fn name(&self) -> &str;
+    fn name(&self) -> String;
     fn run(
         &self,
         event_bus: &Arc<dyn EventBus>,
@@ -199,7 +199,8 @@ mod tests {
             .build();
         let result = TaskResultPayload::VideoEncoder {
             output_path: PathBuf::from("out.mp4"),
-            size_bytes: Some(1000),
+            size_bytes: 1000,
+            size_change: 1.0,
         };
         meta.mark_completed(Some(result));
         assert!(meta.result().is_some());

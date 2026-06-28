@@ -56,6 +56,10 @@ impl MediaMetadata {
     pub fn fps(&self) -> Option<f64> {
         self.video_streams.first().and_then(|s| s.avg_frame_rate)
     }
+
+    pub fn size(&self) -> u64 {
+        self.format.size
+    }
 }
 
 impl fmt::Display for MediaMetadata {

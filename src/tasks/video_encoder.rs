@@ -33,10 +33,10 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VideoEncoder {
     id: usize,
-    name: String,
     input: PathBuf,
     output: PathBuf,
     duration: Duration,
+    original_size: u64,
     /// 恒定质量因子 (CRF)，值越小质量越高
     crf: u8,
     /// 帧率上限，若元数据帧率大于配置帧率则启用
@@ -82,17 +82,12 @@ impl VideoEncoder {
         let (crf, scaled_width, scaled_height) =
             Self::compute_scaling_params(resolution.unwrap_or_default(), metadata)?;
 
-        let name = input
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map_or("Encode video".to_string(), |s| format!("Encode video: {s}"));
-
         Ok(Self {
             id,
-            name,
             input,
             output,
             duration: metadata.duration(),
+            original_size: metadata.size(),
             crf,
             fps,
             scaled_width,
@@ -270,8 +265,10 @@ impl CommandTask for VideoEncoder {
         self.id
     }
 
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.file_name()
+            .and_then(|s| s.to_str())
+            .map_or("Encode video".to_string(), |s| format!("Encode video: {s}"))
     }
 
     fn input(&self) -> &Path {
@@ -294,10 +291,15 @@ impl CommandTask for VideoEncoder {
         Some(self.duration)
     }
 
-    fn result_payload(&self, total_size: Option<u64>) -> Option<TaskResultPayload> {
+    #[allow(clippy::cast_precision_loss)]
+    fn result_payload(&self, output_size: Option<u64>) -> Option<TaskResultPayload> {
+        let output_size = output_size.unwrap_or_default();
+        let size_change =
+            (output_size as f64 - self.original_size as f64) / self.original_size as f64;
         Some(TaskResultPayload::VideoEncoder {
             output_path: self.output.clone(),
-            size_bytes: total_size,
+            size_bytes: output_size,
+            size_change,
         })
     }
 }

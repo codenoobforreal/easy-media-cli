@@ -14,20 +14,12 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct MediaMetadataGetter {
     id: usize,
-    name: String,
     input: PathBuf,
 }
 
 impl MediaMetadataGetter {
     pub fn new(id: usize, input: PathBuf) -> Self {
-        let name = input
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map_or("Retrive metadata".to_string(), |s| {
-                format!("Retrive metadata: {s}")
-            });
-
-        Self { id, name, input }
+        Self { id, input }
     }
 
     fn build_command_args(&self) -> Vec<OsString> {
@@ -45,8 +37,12 @@ impl CommandTask for MediaMetadataGetter {
         self.id
     }
 
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.file_name()
+            .and_then(|s| s.to_str())
+            .map_or("Retrive metadata".to_string(), |s| {
+                format!("Retrive metadata: {s}")
+            })
     }
 
     fn input(&self) -> &Path {

@@ -143,7 +143,7 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
         writeln!(w, "\n{RESULT_LIST_TITLE}")?;
         for metadata in with_result {
             if let Some(result) = metadata.result() {
-                write!(w, "\n[{}]:\n{result}", metadata.name())?;
+                write!(w, "\n[{}]:\n{result}\n", metadata.name())?;
             }
         }
         writeln!(w)?;

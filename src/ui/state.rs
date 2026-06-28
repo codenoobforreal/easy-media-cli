@@ -109,14 +109,10 @@ impl TaskStateStore {
         match event {
             Event::TaskQueueStart { total } => {
                 self.expected_total = total;
-                self.tasks = vec![None; total];
             }
 
             Event::TaskStarted { metadata } => {
-                let id = metadata.id();
-                if let Some(slot) = self.tasks.get_mut(id - 1) {
-                    *slot = Some(metadata);
-                }
+                self.tasks.push(Some(metadata));
             }
 
             Event::TaskProgress { id, progress } => {

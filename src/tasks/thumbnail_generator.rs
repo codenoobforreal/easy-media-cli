@@ -17,7 +17,6 @@ use std::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThumbnailGenerator {
     id: usize,
-    name: String,
     input: PathBuf,
     output: PathBuf,
     scene_threshold: f32,
@@ -37,16 +36,8 @@ impl ThumbnailGenerator {
         let input = input.into();
         let output = Self::build_output_path(&input, output_dir)?;
 
-        let name = input
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map_or("Generate thumbnail".to_string(), |s| {
-                format!("Generate thumbnail: {s}")
-            });
-
         Ok(Self {
             id,
-            name,
             input,
             output,
             scene_threshold,
@@ -126,8 +117,12 @@ impl CommandTask for ThumbnailGenerator {
         self.id
     }
 
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.file_name()
+            .and_then(|s| s.to_str())
+            .map_or("Generate thumbnail".to_string(), |s| {
+                format!("Generate thumbnail: {s}")
+            })
     }
 
     fn input(&self) -> &Path {
