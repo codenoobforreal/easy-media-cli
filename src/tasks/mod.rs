@@ -21,14 +21,14 @@ pub const OVERWRITE_ARGS: &str = "-y";
 
 /// SVT-AV1 编码器选择
 pub const CODEC_SVTAV1_ARGS: &[&str] = &["-c:v", "libsvtav1"];
-/// SVT-AV1 预设值（这里固定为 4）
+/// SVT-AV1 预设值
 pub const PRESET_SVTAV1_ARGS: &str = "-preset";
 /// 10bit YUV 4:2:0 像素格式
 pub const PIX_FMT_10LE_ARGS: &[&str] = &["-pix_fmt", "yuv420p10le"];
-/// SVT-AV1 扩展参数（tune、film-grain 等）
+/// SVT-AV1 扩展参数
 pub const SVTAV1_PARAMS_ARGS: &[&str] = &[
     "-svtav1-params",
-    "tune=0:film-grain=8:enable-qm=1:qm-min=0:qm-max=15:qp-scale-compress-strength=1",
+    "tune=0:film-grain=8:qp-scale-compress-strength=1",
 ];
 /// 音频流直接复制，不重新编码
 pub const COPY_AUDIO_ARGS: &[&str] = &["-c:a", "copy"];
