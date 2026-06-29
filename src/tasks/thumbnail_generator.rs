@@ -4,7 +4,7 @@ use crate::{
     task::command::CommandTask,
     tasks::{
         FPS_MODE_ARGS, LOG_ERROR_ARGS, OVERWRITE_ARGS, PROGRESS_ARGS, SKIP_FRAME_ARGS,
-        VIDEO_QUALITY_ARGS,
+        STANDARD_UNOFFICIAL, VIDEO_QUALITY_ARGS,
     },
 };
 use anyhow::{Context, Result};
@@ -51,8 +51,10 @@ impl ThumbnailGenerator {
         let origin = Origin::new(
             metadata
                 .width()
-                .with_context(|| "Failed to retrive metadata width")?,
-            metadata.duration(),
+                .with_context(|| "Missing width from metadata")?,
+            metadata
+                .duration()
+                .with_context(|| "Missing duration from metadata")?,
         );
 
         Ok(Self {
@@ -98,19 +100,15 @@ impl ThumbnailGenerator {
     pub fn build_command_args(&self) -> Vec<OsString> {
         let mut args: Vec<OsString> = Vec::new();
 
-        // 日志 & 进度
         args.extend(LOG_ERROR_ARGS.iter().map(OsString::from));
         args.extend(SKIP_FRAME_ARGS.iter().map(OsString::from));
         args.extend(PROGRESS_ARGS.iter().map(OsString::from));
-        // 输入文件
         args.extend([OsString::from("-i"), OsString::from(&self.input)]);
-        // 视频滤镜
         args.extend([OsString::from("-vf"), self.video_filter()]);
-        // 输出参数
         args.extend(FPS_MODE_ARGS.iter().map(OsString::from));
+        args.extend(STANDARD_UNOFFICIAL.iter().map(OsString::from));
         args.extend([OsString::from(VIDEO_QUALITY_ARGS), OsString::from("2")]);
         args.push(OsString::from(OVERWRITE_ARGS));
-        // 输出文件
         args.push(OsString::from(&self.output));
 
         args
@@ -181,10 +179,32 @@ impl CommandTask for ThumbnailGenerator {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::media::VideoStream;
-
     use super::*;
+    use crate::domain::media::{MetadataFormat, VideoStream};
     use insta::assert_debug_snapshot;
+
+    fn sample_metadata(
+        width: u16,
+        height: u16,
+        // fps: f64,
+        duration: Duration,
+        // size: u64,
+    ) -> MediaMetadata {
+        MediaMetadata {
+            video_streams: vec![VideoStream {
+                width: Some(width),
+                height: Some(height),
+                // avg_frame_rate: Some(fps),
+                ..VideoStream::default()
+            }],
+            format: MetadataFormat {
+                duration: Some(duration),
+                // size: Some(size),
+                ..MetadataFormat::default()
+            },
+            ..MediaMetadata::default()
+        }
+    }
 
     #[test]
     fn test_build_output_path_with_output() {
@@ -205,14 +225,7 @@ mod tests {
 
     #[test]
     fn test_video_filter() {
-        let metadata = MediaMetadata {
-            video_streams: vec![VideoStream {
-                width: 1920,
-                ..VideoStream::default()
-            }],
-            ..MediaMetadata::default()
-        };
-
+        let metadata = sample_metadata(1920, 0, Duration::ZERO);
         let with_width_generator = ThumbnailGenerator::new(
             1,
             Path::new("/input.mp4"),
@@ -238,14 +251,7 @@ mod tests {
 
     #[test]
     fn test_build_command_args() {
-        let metadata = MediaMetadata {
-            video_streams: vec![VideoStream {
-                width: 1920,
-                ..VideoStream::default()
-            }],
-            ..MediaMetadata::default()
-        };
-
+        let metadata = sample_metadata(1920, 0, Duration::ZERO);
         let generator = ThumbnailGenerator::new(
             1,
             Path::new("/input.mp4"),
@@ -258,6 +264,6 @@ mod tests {
         let mut args = generator.build_command_args();
         let output_path = args.pop().unwrap();
         assert_eq!(Path::new(&output_path), generator.output().unwrap());
-        assert_debug_snapshot!(args.join(OsStr::new(" ")),@r#""-v error -skip_frame nokey -progress pipe:1 -i /input.mp4 -vf select=gt(scene\\,0.3),scale=in_range=auto:out_range=full,format=yuv420p -fps_mode vfr -q:v 2 -y""#);
+        assert_debug_snapshot!(args.join(OsStr::new(" ")),@r#""-v error -skip_frame nokey -progress pipe:1 -i /input.mp4 -vf select=gt(scene\\,0.3),scale=in_range=auto:out_range=full,format=yuv420p -fps_mode vfr -strict unofficial -q:v 2 -y""#);
     }
 }

@@ -5,6 +5,7 @@ use crate::{
     domain::{
         cancel_token::CancelToken,
         event::{Event, EventBus, TaskResultPayload},
+        progress::Progress,
         task::{Task, TaskConfig, TaskError},
     },
     infra::{
@@ -16,7 +17,6 @@ use crate::{
 use anyhow::{Context, Result, anyhow};
 use std::{
     io::{BufRead, BufReader, Read},
-    ops::Mul,
     process::ExitStatus,
     sync::Arc,
     thread,
@@ -328,9 +328,13 @@ pub fn read_progress(
     let mut buf_reader = BufReader::new(stdout_reader);
     let mut parser = FfmpegProgressParser::default();
     let mut tracker = ProgressTracker::new(total_duration, progress_threshold);
-    let mut last_publish = Instant::now()
-        .checked_sub(render_interval.mul(2))
-        .unwrap_or(Instant::now());
+
+    // 发布第一进度为 0 的进度事件
+    event_bus.publish(Event::TaskProgress {
+        id,
+        progress: Progress::default(),
+    })?;
+    let mut last_publish = Instant::now();
 
     let mut line = String::new();
     loop {

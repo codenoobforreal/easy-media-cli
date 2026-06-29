@@ -21,7 +21,7 @@ pub struct Stream {
     pub codec_long_name: String,
 
     /// 编码档次/配置集：定义编码可用的算法集合，直接影响压缩效率与解码复杂度
-    pub profile: String,
+    pub profile: Option<String>,
 
     /// 媒体流类型，`video` 代表视频流，`audio` 代表音频流，另有字幕流 `subtitles`、数据流 `data` 等其他类型
     pub codec_type: String,
@@ -33,7 +33,7 @@ pub struct Stream {
     pub codec_tag: String,
 
     /// 遵循RFC 6381规范的MIME编码参数字符串，用于网页、HTTP场景下精准描述编码参数
-    pub mime_codec_string: String,
+    pub mime_codec_string: Option<String>,
 
     /// 视频分辨率，播放画面的宽高尺寸
     pub width: Option<u16>,
@@ -97,7 +97,7 @@ pub struct Stream {
     pub duration: String,
 
     /// 流码率，每秒传输/存储的数据量，单位比特每秒(bps)
-    pub bit_rate: String,
+    pub bit_rate: Option<String>,
 
     /// 原始采样位深，每个色彩分量采样占用的比特位数
     pub bits_per_raw_sample: Option<String>,
@@ -106,7 +106,7 @@ pub struct Stream {
     pub nb_frames: String,
 
     /// 附加私有数据大小，存储解码器初始化所需的专属配置参数，单位字节
-    pub extradata_size: u8,
+    pub extradata_size: u16,
 
     /// 音频采样格式：描述单个采样点的数据类型与存储方式
     pub sample_fmt: Option<String>,

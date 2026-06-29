@@ -95,12 +95,15 @@ impl VideoEncoder {
                 )
             }
         })?;
-        let origin_size = metadata.size();
+        let origin_size = metadata
+            .size()
+            .with_context(|| "Missing size from metadata")?;
         let origin_resolution = metadata
             .resolution()
-            .ok_or_else(|| anyhow!("Could not determine video resolution from metadata"))?
-            .map_err(|e| anyhow!("Invalid resolution: {e}"))?;
-        let origin_duration = metadata.duration();
+            .with_context(|| "Missing resolution from metadata")?;
+        let origin_duration = metadata
+            .duration()
+            .with_context(|| "Missing duration from metadata")?;
         let origin = Origin::new(origin_resolution, origin_fps, origin_duration, origin_size);
 
         let fps = if origin_fps > fps { Some(fps) } else { None };
@@ -189,8 +192,7 @@ impl VideoEncoder {
 
         let source_resolution = metadata
             .resolution()
-            .ok_or_else(|| anyhow!("Could not determine video resolution from metadata"))?
-            .map_err(|e| anyhow!("Invalid resolution: {e}"))?;
+            .with_context(|| "Missing resolution from metadata")?;
 
         let (effective_resolution, do_scale) = if source_pixels > target_resolution.pixels() {
             (target_resolution, true)
@@ -353,17 +355,28 @@ fn resolution_to_preset(resolution: Resolution) -> u8 {
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
-    use crate::domain::media::VideoStream;
+    use crate::domain::media::{MetadataFormat, VideoStream};
     use insta::assert_debug_snapshot;
 
-    fn sample_metadata(width: u16, height: u16, fps: f64) -> MediaMetadata {
+    fn sample_metadata(
+        width: u16,
+        height: u16,
+        fps: f64,
+        duration: Duration,
+        size: u64,
+    ) -> MediaMetadata {
         MediaMetadata {
             video_streams: vec![VideoStream {
-                width,
-                height,
+                width: Some(width),
+                height: Some(height),
                 avg_frame_rate: Some(fps),
                 ..VideoStream::default()
             }],
+            format: MetadataFormat {
+                duration: Some(duration),
+                size: Some(size),
+                ..MetadataFormat::default()
+            },
             ..MediaMetadata::default()
         }
     }
@@ -411,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_video_encoder_new_basic() {
-        let metadata = sample_metadata(1920, 1080, 30.0);
+        let metadata = sample_metadata(1920, 1080, 30.0, Duration::ZERO, 0);
         let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24.0, &metadata).unwrap();
         assert!(encoder.output.to_string_lossy().starts_with("input-"));
         assert!(encoder.output.to_string_lossy().ends_with(".mp4"));
@@ -424,14 +437,14 @@ mod tests {
 
     #[test]
     fn test_video_encoder_new_no_fps_cap() {
-        let metadata = sample_metadata(1920, 1080, 20.0);
+        let metadata = sample_metadata(1920, 1080, 20.0, Duration::ZERO, 0);
         let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24.0, &metadata).unwrap();
         assert_eq!(encoder.fps, None);
     }
 
     #[test]
     fn test_video_encoder_new_with_target_resolution_upscale() {
-        let metadata = sample_metadata(1280, 720, 30.0);
+        let metadata = sample_metadata(1280, 720, 30.0, Duration::ZERO, 0);
         let encoder =
             VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Fhd), 24.0, &metadata)
                 .unwrap();
@@ -442,7 +455,7 @@ mod tests {
 
     #[test]
     fn test_video_encoder_new_portrait_orientation() {
-        let metadata = sample_metadata(1080, 1920, 30.0);
+        let metadata = sample_metadata(1080, 1920, 30.0, Duration::ZERO, 0);
         let encoder = VideoEncoder::new(
             1,
             "input.mp4",
@@ -459,7 +472,7 @@ mod tests {
 
     #[test]
     fn test_video_encoder_new_portrait_downscale() {
-        let metadata = sample_metadata(2160, 3840, 30.0);
+        let metadata = sample_metadata(2160, 3840, 30.0, Duration::ZERO, 0);
         let encoder = VideoEncoder::new(
             1,
             "input.mp4",
@@ -478,7 +491,7 @@ mod tests {
     #[test]
     #[allow(clippy::case_sensitive_file_extension_comparisons)]
     fn build_command_args() {
-        let metadata = sample_metadata(1920, 1080, 30.0);
+        let metadata = sample_metadata(1920, 1080, 30.0, Duration::ZERO, 0);
         let encoder = VideoEncoder::new(
             1,
             "input.mp4",
@@ -507,7 +520,7 @@ mod tests {
 
     #[test]
     fn test_video_encoder_gop() {
-        let metadata = sample_metadata(1920, 1080, 30.0);
+        let metadata = sample_metadata(1920, 1080, 30.0, Duration::ZERO, 0);
         let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24.0, &metadata).unwrap();
         assert_eq!(encoder.gop(), 240);
         let encoder_no_fps =

@@ -80,7 +80,7 @@ impl CommandTask for MediaMetadataGetter {
     ) -> Result<Option<TaskResultPayload>> {
         let probe_result: FfprobeRawJson = from_slice(stdout)
             .map_err(|e| anyhow!("Failed to deserialize ffprobe JSON output: {e}"))?;
-        let metadata = convert_raw_to_metadata(probe_result)?;
+        let metadata = convert_raw_to_metadata(probe_result);
 
         Ok(Some(TaskResultPayload::MediaMetadataGetter { metadata }))
     }

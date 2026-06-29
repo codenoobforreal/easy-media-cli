@@ -2,7 +2,6 @@ use crate::{
     common::{format_duration_all, human_readable_size},
     domain::media::Resolution,
 };
-use anyhow::{Result, anyhow};
 use std::{fmt, time::Duration};
 
 /// 媒体元数据
@@ -28,28 +27,32 @@ impl MediaMetadata {
         }
     }
 
-    pub fn duration(&self) -> Duration {
+    pub fn duration(&self) -> Option<Duration> {
         self.format.duration
     }
 
     pub fn width(&self) -> Option<u16> {
-        self.video_streams.first().map(|s| s.width)
+        self.video_streams.first().and_then(|s| s.width)
     }
 
     pub fn height(&self) -> Option<u16> {
-        self.video_streams.first().map(|s| s.height)
+        self.video_streams.first().and_then(|s| s.height)
     }
 
     pub fn pixels(&self) -> Option<u32> {
-        self.video_streams
-            .first()
-            .map(|s| u32::from(s.width) * u32::from(s.height))
+        self.video_streams.first().and_then(|s| {
+            s.width
+                .zip(s.height)
+                .map(|(w, h)| u32::from(w) * u32::from(h))
+        })
     }
 
-    pub fn resolution(&self) -> Option<Result<Resolution>> {
-        self.video_streams
-            .first()
-            .map(|s| Resolution::new(s.width, s.height).map_err(|e| anyhow!(e)))
+    pub fn resolution(&self) -> Option<Resolution> {
+        self.video_streams.first().and_then(|s| {
+            s.width
+                .zip(s.height)
+                .and_then(|(w, h)| Resolution::new(w, h).ok())
+        })
     }
 
     /// 平均帧率
@@ -57,7 +60,7 @@ impl MediaMetadata {
         self.video_streams.first().and_then(|s| s.avg_frame_rate)
     }
 
-    pub fn size(&self) -> u64 {
+    pub fn size(&self) -> Option<u64> {
         self.format.size
     }
 }
@@ -67,16 +70,22 @@ impl fmt::Display for MediaMetadata {
         // 容器
         writeln!(f, "Container: {}", self.format.name)?;
         // 时长
-        let dur = self.duration();
-        writeln!(f, "Duration: {}", format_duration_all(dur))?;
+        let duration = self
+            .duration()
+            .map_or("N/A".to_string(), format_duration_all);
+        writeln!(f, "Duration: {duration}")?;
+        let size = self
+            .format
+            .size
+            .map_or("N/A".to_string(), human_readable_size);
         // 大小
-        writeln!(f, "Size: {}", human_readable_size(self.format.size))?;
+        writeln!(f, "Size: {size}")?;
 
         // 视频流
         writeln!(f, "Video streams: {}", self.video_streams.len())?;
         if let Some(v) = self.video_streams.first() {
             writeln!(f, "  Codec: {}", v.codec_name)?;
-            writeln!(f, "  Resolution: {}x{}", v.width, v.height)?;
+            writeln!(f, "  Resolution: {:?}x{:?}", v.width, v.height)?;
             if let Some(fps) = v.avg_frame_rate {
                 writeln!(f, "  Frame rate: {fps:.2} fps")?;
             } else {
@@ -88,8 +97,8 @@ impl fmt::Display for MediaMetadata {
         writeln!(f, "Audio streams: {}", self.audio_streams.len())?;
         if let Some(a) = self.audio_streams.first() {
             writeln!(f, "  Codec: {}", a.codec_name)?;
-            writeln!(f, "  Sample rate: {} Hz", a.sample_rate)?;
-            writeln!(f, "  Channels: {} ({})", a.channels, a.channel_layout)?;
+            writeln!(f, "  Sample rate: {:?} Hz", a.sample_rate)?;
+            writeln!(f, "  Channels: {:?} ({:?})", a.channels, a.channel_layout)?;
         }
 
         Ok(())
@@ -106,13 +115,13 @@ pub struct VideoStream {
     /// 编码器四字符标识(FourCC)，属于封装层编码标识
     pub codec_tag_string: String,
     /// 播放画面的宽尺寸
-    pub width: u16,
+    pub width: Option<u16>,
     /// 播放画面的高尺寸
-    pub height: u16,
+    pub height: Option<u16>,
     // pub coded_width: u16,
     // pub coded_height: u16,
     /// 像素格式，定义视频帧的色彩编码、采样方式与内存存储排布
-    pub pix_fmt: String,
+    pub pix_fmt: Option<String>,
     /// 是否采用AVC封装格式
     pub is_avc: bool,
     /// 标称/实时帧率：流预设帧率
@@ -120,13 +129,13 @@ pub struct VideoStream {
     /// 实际平均帧率，总帧数除以总时长计算得出，反映真实播放帧率
     pub avg_frame_rate: Option<f64>,
     /// 可读起始时间
-    pub start_time: Duration,
+    pub start_time: Option<Duration>,
     /// 总播放时长
-    pub duration: Duration,
+    pub duration: Option<Duration>,
     /// 流码率
-    pub bit_rate: u64,
+    pub bit_rate: Option<u64>,
     /// 流总帧数
-    pub nb_frames: u32,
+    pub nb_frames: Option<u32>,
     /// 由处置中的 `default` 字段决定；1 表示真，0 表示假
     pub is_default: bool,
     // pub tags: HashMap<String, String>,
@@ -138,15 +147,15 @@ pub struct AudioStream {
     pub codec_name: String,
     pub codec_long_name: String,
     pub codec_tag_string: String,
-    pub sample_rate: u32,
-    pub channels: u8,
-    pub channel_layout: String,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u8>,
+    pub channel_layout: Option<String>,
     pub r_frame_rate: Option<f64>,
     pub avg_frame_rate: Option<f64>,
-    pub start_time: Duration,
-    pub duration: Duration,
-    pub bit_rate: u64,
-    pub nb_frames: u32,
+    pub start_time: Option<Duration>,
+    pub duration: Option<Duration>,
+    pub bit_rate: Option<u64>,
+    pub nb_frames: Option<u32>,
     /// 由处置中的 `default` 字段决定；1 表示真，0 表示假
     pub is_default: bool,
     // pub tags: HashMap<String, String>,
@@ -166,11 +175,11 @@ pub struct MetadataFormat {
     /// `json` 实际字段名为 `format_long_name`
     pub long_name: String,
     /// 整个文件的起始时间，取所有流中最早的起始时间
-    pub start_time: Duration,
+    pub start_time: Option<Duration>,
     /// 文件总播放时长，取所有流中最长时长作为封装容器总时长
-    pub duration: Duration,
+    pub duration: Option<Duration>,
     /// 媒体文件总大小，单位字节
-    pub size: u64,
+    pub size: Option<u64>,
     /// 文件整体平均码率，文件总大小除以总时长计算，包含音视频数据与封装包头开销，单位bps
-    pub bit_rate: u64,
+    pub bit_rate: Option<u64>,
 }

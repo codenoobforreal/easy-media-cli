@@ -16,6 +16,8 @@ pub const SKIP_FRAME_ARGS: &[&str] = &["-skip_frame", "nokey"];
 pub const FPS_MODE_ARGS: &[&str] = &["-fps_mode", "vfr"];
 /// 视频质量参数（-q:v）
 pub const VIDEO_QUALITY_ARGS: &str = "-q:v";
+/// 非正式
+pub const STANDARD_UNOFFICIAL: &[&str] = &["-strict", "unofficial"];
 /// 覆盖输出文件（不询问确认）
 pub const OVERWRITE_ARGS: &str = "-y";
 

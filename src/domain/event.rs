@@ -13,6 +13,7 @@ pub enum TaskResultPayload {
         size_change: f64,
         duration: Duration,
     },
+
     ThumbnailGenerator {
         output_dir: PathBuf,
         duration: Duration,

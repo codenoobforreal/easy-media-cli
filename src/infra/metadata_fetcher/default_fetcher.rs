@@ -4,7 +4,7 @@ use crate::{
         CapturingCommandRunner, CapturingCommandRunnerExt, FfprobeRawJson, convert_raw_to_metadata,
     },
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::from_slice;
 use std::{path::Path, sync::Arc};
 
@@ -33,8 +33,10 @@ impl MetadataFetcher for DefaultMetadataFetcher {
             ],
         )?;
 
-        let raw: FfprobeRawJson = from_slice(&output.stdout)?;
+        let raw: FfprobeRawJson = from_slice(&output.stdout).with_context(|| {
+            format!("Failed to retrive metadata for input: {}", input.display())
+        })?;
 
-        convert_raw_to_metadata(raw)
+        Ok(convert_raw_to_metadata(raw))
     }
 }
