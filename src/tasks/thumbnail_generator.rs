@@ -1,5 +1,5 @@
 use crate::{
-    domain::{event::TaskResultPayload, media::MediaMetadata},
+    domain::{event::TaskResultPayload, media::MediaMetadata, task::TaskConfig},
     infra::CommandSpec,
     task::command::CommandTask,
     tasks::{
@@ -21,7 +21,19 @@ pub struct ThumbnailGenerator {
     output: PathBuf,
     scene_threshold: f32,
     width: Option<u16>,
+    origin: Origin,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+struct Origin {
+    width: u16,
     duration: Duration,
+}
+
+impl Origin {
+    pub fn new(width: u16, duration: Duration) -> Self {
+        Self { width, duration }
+    }
 }
 
 impl ThumbnailGenerator {
@@ -36,13 +48,20 @@ impl ThumbnailGenerator {
         let input = input.into();
         let output = Self::build_output_path(&input, output_dir)?;
 
+        let origin = Origin::new(
+            metadata
+                .width()
+                .with_context(|| "Failed to retrive metadata width")?,
+            metadata.duration(),
+        );
+
         Ok(Self {
             id,
             input,
             output,
             scene_threshold,
             width,
-            duration: metadata.duration(),
+            origin,
         })
     }
 
@@ -125,6 +144,12 @@ impl CommandTask for ThumbnailGenerator {
             })
     }
 
+    fn config(&self) -> TaskConfig {
+        let scene = self.scene_threshold;
+        let width = self.width.unwrap_or(self.origin.width);
+        TaskConfig::ThumbnailGenerator { scene, width }
+    }
+
     fn input(&self) -> &Path {
         &self.input
     }
@@ -134,7 +159,7 @@ impl CommandTask for ThumbnailGenerator {
     }
 
     fn duration(&self) -> Option<Duration> {
-        Some(self.duration)
+        Some(self.origin.duration)
     }
 
     fn file_name(&self) -> Option<&OsStr> {
@@ -145,14 +170,19 @@ impl CommandTask for ThumbnailGenerator {
         CommandSpec::new("ffmpeg", self.build_command_args())
     }
 
-    fn result_payload(&self, _: Option<u64>) -> Option<TaskResultPayload> {
+    fn result_payload(&self, duration: Duration, _: Option<u64>) -> Option<TaskResultPayload> {
         let output_dir = self.output.parent().unwrap_or(&self.output).to_path_buf();
-        Some(TaskResultPayload::ThumbnailGenerator { output_dir })
+        Some(TaskResultPayload::ThumbnailGenerator {
+            output_dir,
+            duration,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::media::VideoStream;
+
     use super::*;
     use insta::assert_debug_snapshot;
 
@@ -175,13 +205,21 @@ mod tests {
 
     #[test]
     fn test_video_filter() {
+        let metadata = MediaMetadata {
+            video_streams: vec![VideoStream {
+                width: 1920,
+                ..VideoStream::default()
+            }],
+            ..MediaMetadata::default()
+        };
+
         let with_width_generator = ThumbnailGenerator::new(
             1,
             Path::new("/input.mp4"),
             Some(Path::new("/input/input-%04d.jpg")),
             0.3,
             Some(200),
-            &MediaMetadata::default(),
+            &metadata,
         )
         .unwrap();
         assert_debug_snapshot!(with_width_generator.video_filter(),@r#""select=gt(scene\\,0.3),scale=200:-2:in_range=auto:out_range=full,format=yuvj420p""#);
@@ -192,7 +230,7 @@ mod tests {
             Some(Path::new("/input/input-%04d.jpg")),
             0.3,
             None,
-            &MediaMetadata::default(),
+            &metadata,
         )
         .unwrap();
         assert_debug_snapshot!(without_width_generator.video_filter(),@r#""select=gt(scene\\,0.3),scale=in_range=auto:out_range=full,format=yuv420p""#);
@@ -200,13 +238,21 @@ mod tests {
 
     #[test]
     fn test_build_command_args() {
+        let metadata = MediaMetadata {
+            video_streams: vec![VideoStream {
+                width: 1920,
+                ..VideoStream::default()
+            }],
+            ..MediaMetadata::default()
+        };
+
         let generator = ThumbnailGenerator::new(
             1,
             Path::new("/input.mp4"),
             Some(Path::new("/input/input-%04d.jpg")),
             0.3,
             None,
-            &MediaMetadata::default(),
+            &metadata,
         )
         .unwrap();
         let mut args = generator.build_command_args();

@@ -1,9 +1,9 @@
 use crate::{
-    common::human_readable_size,
+    common::{format_duration_all, human_readable_size},
     domain::{media::MediaMetadata, progress::Progress, task::TaskMetadata},
 };
 use anyhow::Result;
-use std::{fmt, path::PathBuf, sync::Arc};
+use std::{fmt, path::PathBuf, sync::Arc, time::Duration};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskResultPayload {
@@ -11,9 +11,11 @@ pub enum TaskResultPayload {
         output_path: PathBuf,
         size_bytes: u64,
         size_change: f64,
+        duration: Duration,
     },
     ThumbnailGenerator {
         output_dir: PathBuf,
+        duration: Duration,
     },
 
     MediaMetadataGetter {
@@ -28,6 +30,7 @@ impl fmt::Display for TaskResultPayload {
                 output_path,
                 size_bytes,
                 size_change,
+                duration,
             } => {
                 let change = if size_change.is_sign_positive() {
                     format!("{:.2}% bigger", size_change.abs() * 100.0)
@@ -37,14 +40,23 @@ impl fmt::Display for TaskResultPayload {
 
                 write!(
                     f,
-                    "Output: {} ({} {change})",
+                    "Output: {} ({} | {change} | {})",
                     output_path.display(),
                     human_readable_size(*size_bytes),
+                    format_duration_all(*duration)
                 )
             }
 
-            TaskResultPayload::ThumbnailGenerator { output_dir } => {
-                write!(f, "Thumbnails saved in: {}", output_dir.display())
+            TaskResultPayload::ThumbnailGenerator {
+                output_dir,
+                duration,
+            } => {
+                write!(
+                    f,
+                    "Thumbnails saved in: {} | {}",
+                    output_dir.display(),
+                    format_duration_all(*duration)
+                )
             }
 
             TaskResultPayload::MediaMetadataGetter { metadata } => {

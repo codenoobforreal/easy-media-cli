@@ -5,7 +5,7 @@ use crate::{
     domain::{
         cancel_token::CancelToken,
         event::{Event, EventBus, TaskResultPayload},
-        task::{Task, TaskError},
+        task::{Task, TaskConfig, TaskError},
     },
     infra::{
         CapturingCommandRunner, CapturingCommandRunnerExt, ChildGuard, FfmpegProgressParser,
@@ -36,9 +36,7 @@ struct IoThreadHandles {
 /// - 给包装器实现通用 `Task` 接口，才能被 `Runner` 当作通用 `Task` 执行
 #[derive(Debug)]
 pub struct CommandTaskWrapper<T: CommandTask> {
-    /// 嵌套的具体任务：Thumbnail、Transcode、ExtractAudio 等
     inner: T,
-    // 通用依赖统一由包装层持有，业务任务完全不感知
     command_runner: Arc<dyn CapturingCommandRunner>,
     file_system: Arc<dyn FileSystem>,
     render_interval: Duration,
@@ -52,6 +50,10 @@ impl<T: CommandTask> Task for CommandTaskWrapper<T> {
 
     fn name(&self) -> String {
         self.inner.name()
+    }
+
+    fn config(&self) -> TaskConfig {
+        self.inner.config()
     }
 
     fn run(
@@ -121,7 +123,7 @@ impl<T: CommandTask> CommandTaskWrapper<T> {
             Self::wait_for_completion(&mut child_guard, cancel_token, self.render_interval)?;
         let total_size = self.finalize_streaming_result(exit_status, io_handles, cancel_token)?;
 
-        Ok(self.inner.result_payload(total_size))
+        Ok(self.inner.result_payload(start_time.elapsed(), total_size))
     }
 
     fn run_capturing_mode(
@@ -134,6 +136,9 @@ impl<T: CommandTask> CommandTaskWrapper<T> {
         }
 
         let spec = self.inner.command_spec();
+
+        let start_time = Instant::now();
+
         let output = self
             .command_runner
             .run_and_capture(&spec.program, &spec.args)?;
@@ -158,8 +163,7 @@ impl<T: CommandTask> CommandTaskWrapper<T> {
             return Err(TaskError::Failed(err));
         }
 
-        // 如果捕获模式任务还需要更多数据（比如文件大小），可以在这里调用 result_payload。
-        Ok(None)
+        Ok(self.inner.result_payload(start_time.elapsed(), None))
     }
 
     /// 启动子进程，并根据配置启动对应的 `IO` 处理线程

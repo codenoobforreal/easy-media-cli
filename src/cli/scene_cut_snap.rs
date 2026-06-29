@@ -85,3 +85,69 @@ pub fn handle_scene_cut_snap(
 
     run_tasks_with_ui(tasks, event_bus, renderer, render_interval)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::{Cli, Commands};
+    use anyhow::{Context, Result};
+    use clap::Parser;
+    use insta::assert_debug_snapshot;
+
+    fn parse_scs_args(cmd: &[&str]) -> Result<ScsArgs> {
+        let cli = Cli::try_parse_from(cmd)
+            .with_context(|| format!("Failed to parse CLI args: {cmd:?}"))?;
+        match cli.command {
+            Commands::Scs(args) => Ok(args),
+            Commands::Ev(..) => panic!("parse_scs_args only supports Scs subcommand"),
+        }
+    }
+
+    #[test]
+    fn default_values_are_correct() -> Result<()> {
+        let args = parse_scs_args(&["easy-media-cli", "scs", "-i", "test.mp4"])?;
+        assert_debug_snapshot!(args,@r#"
+            ScsArgs {
+                input: "test.mp4",
+                output: None,
+                depth: None,
+                threshold: 0.3,
+                width: None,
+            }
+            "#);
+        Ok(())
+    }
+
+    #[test]
+    fn threshold_above_10_rejected() {
+        let err = Cli::try_parse_from(["easy-media-cli", "scs", "-i", "test.mp4", "-t", "11"])
+            .unwrap_err();
+        assert_debug_snapshot!(err.kind(),@"ValueValidation");
+    }
+
+    #[test]
+    fn width_zero_rejected() {
+        let err = Cli::try_parse_from(["easy-media-cli", "scs", "-i", "test.mp4", "-w", "0"])
+            .unwrap_err();
+        assert_debug_snapshot!(err.kind(),@"ValueValidation");
+    }
+
+    #[test]
+    fn depth_above_10_rejected() {
+        let err = Cli::try_parse_from(["easy-media-cli", "scs", "-i", "test.mp4", "-d", "11"])
+            .unwrap_err();
+        assert_debug_snapshot!(err.kind(),@"ValueValidation");
+    }
+
+    #[test]
+    fn missing_input_returns_missing_arg_error() {
+        let err = Cli::try_parse_from(["easy-media-cli", "scs"]).unwrap_err();
+        assert_debug_snapshot!(err.kind(),@"MissingRequiredArgument");
+    }
+
+    #[test]
+    fn scs_help_text_stable_snapshot() {
+        let err = Cli::try_parse_from(["easy-media-cli", "scs", "--help"]).unwrap_err();
+        assert_debug_snapshot!(err.kind(),@"DisplayHelp");
+    }
+}

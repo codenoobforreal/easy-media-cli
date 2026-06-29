@@ -1,5 +1,5 @@
 use crate::{
-    domain::event::TaskResultPayload,
+    domain::{event::TaskResultPayload, task::TaskConfig},
     infra::{CommandSpec, FfprobeRawJson, convert_raw_to_metadata},
     task::command::{CommandTask, ExecutionMode},
     tasks::{LOG_ERROR_ARGS, OUTPUT_FORMAT_JSON_ARGS, SHOW_ENTRIES_ARGS},
@@ -43,6 +43,10 @@ impl CommandTask for MediaMetadataGetter {
             .map_or("Retrive metadata".to_string(), |s| {
                 format!("Retrive metadata: {s}")
             })
+    }
+
+    fn config(&self) -> TaskConfig {
+        TaskConfig::MediaMetadataGetter
     }
 
     fn input(&self) -> &Path {

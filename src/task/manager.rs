@@ -65,7 +65,12 @@ impl TaskManager {
 
             let id = task.id();
             let task_name = task.name();
-            let task_metadata = TaskMetadata::builder().id(id).name(task_name).build();
+            let task_config = task.config();
+            let task_metadata = TaskMetadata::builder()
+                .id(id)
+                .name(task_name)
+                .config(task_config)
+                .build();
             self.event_bus.publish(Event::TaskStarted {
                 metadata: task_metadata,
             })?;

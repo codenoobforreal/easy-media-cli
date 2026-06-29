@@ -1,6 +1,7 @@
 use crate::domain::{
     cancel_token::CancelToken,
     event::{EventBus, TaskResultPayload},
+    media::Resolution,
     progress::Progress,
 };
 use anyhow::Result;
@@ -18,6 +19,7 @@ pub enum TaskError {
 pub trait Task: Send + Sync + fmt::Debug {
     fn id(&self) -> usize;
     fn name(&self) -> String;
+    fn config(&self) -> TaskConfig;
     fn run(
         &self,
         event_bus: &Arc<dyn EventBus>,
@@ -35,14 +37,58 @@ pub enum Status {
     Cancelled,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum TaskConfig {
+    VideoEncoder {
+        resolution: Resolution,
+        preset: u8,
+        crf: u8,
+        fps: f64,
+    },
+
+    ThumbnailGenerator {
+        scene: f32,
+        width: u16,
+    },
+
+    #[default]
+    MediaMetadataGetter,
+}
+
+impl fmt::Display for TaskConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::VideoEncoder {
+                resolution,
+                preset,
+                crf,
+                fps,
+            } => {
+                write!(
+                    f,
+                    "config: resolution {resolution} | preset {preset} | crf {crf} | fps {fps:.2} "
+                )
+            }
+
+            Self::ThumbnailGenerator { scene, width } => {
+                write!(f, "config: scene {scene} | width {width}")
+            }
+
+            Self::MediaMetadataGetter => Ok(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TaskMetadata {
     id: usize,
+    /// 任务名称显示在 ui 中
     name: String,
     status: Status,
+    config: TaskConfig,
     progress: Option<Progress>,
-    error: Option<String>,
     result: Option<TaskResultPayload>,
+    error: Option<String>,
 }
 
 impl TaskMetadata {
@@ -60,6 +106,10 @@ impl TaskMetadata {
 
     pub fn status(&self) -> Status {
         self.status
+    }
+
+    pub fn config(&self) -> &TaskConfig {
+        &self.config
     }
 
     pub fn progress(&self) -> Option<Progress> {
@@ -120,6 +170,7 @@ impl TaskMetadata {
 pub struct MetadataBuilder {
     id: usize,
     name: String,
+    config: TaskConfig,
     status: Status,
     progress: Option<Progress>,
     error: Option<String>,
@@ -138,6 +189,11 @@ impl MetadataBuilder {
 
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
+        self
+    }
+
+    pub fn config(mut self, config: TaskConfig) -> Self {
+        self.config = config;
         self
     }
 
@@ -160,6 +216,7 @@ impl MetadataBuilder {
         TaskMetadata {
             id: self.id,
             name: self.name,
+            config: self.config,
             status: self.status,
             progress: self.progress,
             error: self.error,
@@ -201,6 +258,7 @@ mod tests {
             output_path: PathBuf::from("out.mp4"),
             size_bytes: 1000,
             size_change: 1.0,
+            duration: Duration::from_mins(20),
         };
         meta.mark_completed(Some(result));
         assert!(meta.result().is_some());

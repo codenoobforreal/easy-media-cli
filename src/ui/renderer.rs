@@ -1,5 +1,5 @@
 use crate::{
-    domain::task::{Status, TaskMetadata},
+    domain::task::{Status, TaskConfig, TaskMetadata},
     ui::{FAILED_LIST_TITLE, RESULT_LIST_TITLE, progress_bar::render_progress_bar, state::Stats},
 };
 use anyhow::{Context, Result};
@@ -85,6 +85,10 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
             .filter(|t| t.status() == Status::Running)
         {
             writeln!(w, "\n{}", metadata.name())?;
+            match metadata.config() {
+                TaskConfig::MediaMetadataGetter => {}
+                other => writeln!(w, "{other}")?,
+            }
             render_progress_bar(w, metadata.progress().as_ref())
                 .with_context(|| "Failed to render progress bar")?;
         }
@@ -143,7 +147,13 @@ impl<O: Write, E: Write> DefaultRenderer<O, E> {
         writeln!(w, "\n{RESULT_LIST_TITLE}")?;
         for metadata in with_result {
             if let Some(result) = metadata.result() {
-                write!(w, "\n[{}]:\n{result}\n", metadata.name())?;
+                writeln!(w)?;
+                writeln!(w, "{}", metadata.name())?;
+                match metadata.config() {
+                    TaskConfig::MediaMetadataGetter => {}
+                    other => writeln!(w, "{other}")?,
+                }
+                writeln!(w, "{result}")?;
             }
         }
         writeln!(w)?;

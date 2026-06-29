@@ -2,7 +2,10 @@
 
 mod wrapper;
 
-use crate::{domain::event::TaskResultPayload, infra::CommandSpec};
+use crate::{
+    domain::{event::TaskResultPayload, task::TaskConfig},
+    infra::CommandSpec,
+};
 use anyhow::Result;
 use std::{ffi::OsStr, fmt, path::Path, time::Duration};
 pub use wrapper::{CommandTaskWrapper, read_progress};
@@ -10,6 +13,8 @@ pub use wrapper::{CommandTaskWrapper, read_progress};
 pub trait CommandTask: Send + Sync + fmt::Debug {
     fn id(&self) -> usize;
     fn name(&self) -> String;
+    fn config(&self) -> TaskConfig;
+
     fn input(&self) -> &Path;
     fn output(&self) -> Option<&Path>;
     fn file_name(&self) -> Option<&OsStr>;
@@ -36,7 +41,11 @@ pub trait CommandTask: Send + Sync + fmt::Debug {
     fn needs_output_dir(&self) -> bool {
         self.output().is_some()
     }
-    fn result_payload(&self, _total_size: Option<u64>) -> Option<TaskResultPayload> {
+    fn result_payload(
+        &self,
+        _duration: Duration,
+        _total_size: Option<u64>,
+    ) -> Option<TaskResultPayload> {
         None
     }
 

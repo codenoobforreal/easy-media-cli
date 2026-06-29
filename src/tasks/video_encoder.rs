@@ -22,6 +22,7 @@ use crate::{
     domain::{
         event::TaskResultPayload,
         media::{MediaMetadata, Orientation, Resolution},
+        task::TaskConfig,
     },
     infra::CommandSpec,
     task::command::CommandTask,
@@ -44,15 +45,33 @@ pub struct VideoEncoder {
     id: usize,
     input: PathBuf,
     output: PathBuf,
-    duration: Duration,
-    original_size: u64,
     crf: u8,
     preset: u8,
-    fps: Option<u8>,
+    fps: Option<f64>,
     /// 缩放后的宽度（仅横向视频使用）
     scaled_width: Option<u16>,
     /// 缩放后的高度（仅纵向视频使用）
     scaled_height: Option<u16>,
+    origin: Origin,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+struct Origin {
+    resolution: Resolution,
+    fps: f64,
+    duration: Duration,
+    size: u64,
+}
+
+impl Origin {
+    pub fn new(resolution: Resolution, fps: f64, duration: Duration, size: u64) -> Self {
+        Self {
+            resolution,
+            fps,
+            duration,
+            size,
+        }
+    }
 }
 
 impl VideoEncoder {
@@ -61,13 +80,13 @@ impl VideoEncoder {
         input: impl Into<PathBuf>,
         output_dir: Option<&Path>,
         resolution: Option<Resolution>,
-        fps: u8,
+        fps: f64,
         metadata: &MediaMetadata,
     ) -> Result<Self> {
         let input = input.into();
         let output = Self::build_output_path(&input, output_dir)?;
 
-        let metadata_fps = metadata.fps().ok_or_else(|| {
+        let origin_fps = metadata.fps().ok_or_else(|| {
             if metadata.video_streams.is_empty() {
                 anyhow!("Input file does not contain a video stream")
             } else {
@@ -76,12 +95,15 @@ impl VideoEncoder {
                 )
             }
         })?;
+        let origin_size = metadata.size();
+        let origin_resolution = metadata
+            .resolution()
+            .ok_or_else(|| anyhow!("Could not determine video resolution from metadata"))?
+            .map_err(|e| anyhow!("Invalid resolution: {e}"))?;
+        let origin_duration = metadata.duration();
+        let origin = Origin::new(origin_resolution, origin_fps, origin_duration, origin_size);
 
-        let fps = if metadata_fps > f64::from(fps) {
-            Some(fps)
-        } else {
-            None
-        };
+        let fps = if origin_fps > fps { Some(fps) } else { None };
 
         let (crf, preset, scaled_width, scaled_height) =
             Self::compute_scaling_params(resolution.unwrap_or_default(), metadata)?;
@@ -90,13 +112,12 @@ impl VideoEncoder {
             id,
             input,
             output,
-            duration: metadata.duration(),
-            original_size: metadata.size(),
             crf,
             preset,
             fps,
             scaled_width,
             scaled_height,
+            origin,
         })
     }
 
@@ -216,9 +237,10 @@ impl VideoEncoder {
         }
     }
 
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     fn gop(&self) -> u16 {
         match self.fps {
-            Some(f) => min(u16::from(f) * 10, 300),
+            Some(f) => min(f as u16 * 10, 300),
             None => 300,
         }
     }
@@ -233,6 +255,35 @@ impl CommandTask for VideoEncoder {
         self.file_name()
             .and_then(|s| s.to_str())
             .map_or("Encode video".to_string(), |s| format!("Encode video: {s}"))
+    }
+
+    fn config(&self) -> TaskConfig {
+        let resolution = match (self.scaled_width, self.scaled_height) {
+            (Some(w), None) => Resolution::new(
+                w,
+                w / (self.origin.resolution.width() / self.origin.resolution.height()),
+            )
+            .unwrap(),
+
+            (None, Some(h)) => Resolution::new(
+                h,
+                h * (self.origin.resolution.width() / self.origin.resolution.height()),
+            )
+            .unwrap(),
+
+            _ => self.origin.resolution,
+        };
+
+        let fps = self.fps.unwrap_or(self.origin.fps);
+        let preset = self.preset;
+        let crf = self.crf;
+
+        TaskConfig::VideoEncoder {
+            resolution,
+            preset,
+            crf,
+            fps,
+        }
     }
 
     fn input(&self) -> &Path {
@@ -252,23 +303,28 @@ impl CommandTask for VideoEncoder {
     }
 
     fn duration(&self) -> Option<Duration> {
-        Some(self.duration)
+        Some(self.origin.duration)
     }
 
     #[allow(clippy::cast_precision_loss)]
-    fn result_payload(&self, output_size: Option<u64>) -> Option<TaskResultPayload> {
+    fn result_payload(
+        &self,
+        duration: Duration,
+        output_size: Option<u64>,
+    ) -> Option<TaskResultPayload> {
         let output_size = output_size.unwrap_or_default();
         let size_change = {
             if output_size == 0 {
                 0.0
             } else {
-                (output_size as f64 - self.original_size as f64) / self.original_size as f64
+                (output_size as f64 - self.origin.size as f64) / self.origin.size as f64
             }
         };
         Some(TaskResultPayload::VideoEncoder {
             output_path: self.output.clone(),
             size_bytes: output_size,
             size_change,
+            duration,
         })
     }
 }
@@ -356,10 +412,10 @@ mod tests {
     #[test]
     fn test_video_encoder_new_basic() {
         let metadata = sample_metadata(1920, 1080, 30.0);
-        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24, &metadata).unwrap();
+        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24.0, &metadata).unwrap();
         assert!(encoder.output.to_string_lossy().starts_with("input-"));
         assert!(encoder.output.to_string_lossy().ends_with(".mp4"));
-        assert_eq!(encoder.fps, Some(24));
+        assert_eq!(encoder.fps, Some(24.0));
         assert_eq!(encoder.scaled_width, None);
         assert_eq!(encoder.scaled_height, None);
         assert_eq!(encoder.crf, 28);
@@ -369,7 +425,7 @@ mod tests {
     #[test]
     fn test_video_encoder_new_no_fps_cap() {
         let metadata = sample_metadata(1920, 1080, 20.0);
-        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24, &metadata).unwrap();
+        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24.0, &metadata).unwrap();
         assert_eq!(encoder.fps, None);
     }
 
@@ -377,7 +433,8 @@ mod tests {
     fn test_video_encoder_new_with_target_resolution_upscale() {
         let metadata = sample_metadata(1280, 720, 30.0);
         let encoder =
-            VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Fhd), 24, &metadata).unwrap();
+            VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Fhd), 24.0, &metadata)
+                .unwrap();
         assert_eq!(encoder.scaled_width, None);
         assert_eq!(encoder.scaled_height, None);
         assert_eq!(encoder.crf, 30);
@@ -386,8 +443,15 @@ mod tests {
     #[test]
     fn test_video_encoder_new_portrait_orientation() {
         let metadata = sample_metadata(1080, 1920, 30.0);
-        let encoder =
-            VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Vfhd), 24, &metadata).unwrap();
+        let encoder = VideoEncoder::new(
+            1,
+            "input.mp4",
+            None,
+            Some(Resolution::Vfhd),
+            24.0,
+            &metadata,
+        )
+        .unwrap();
         assert_eq!(encoder.scaled_width, None);
         assert_eq!(encoder.scaled_height, None);
         assert_eq!(encoder.crf, 28);
@@ -396,8 +460,15 @@ mod tests {
     #[test]
     fn test_video_encoder_new_portrait_downscale() {
         let metadata = sample_metadata(2160, 3840, 30.0);
-        let encoder =
-            VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Vfhd), 24, &metadata).unwrap();
+        let encoder = VideoEncoder::new(
+            1,
+            "input.mp4",
+            None,
+            Some(Resolution::Vfhd),
+            24.0,
+            &metadata,
+        )
+        .unwrap();
         assert_eq!(encoder.scaled_width, None);
         assert_eq!(encoder.scaled_height, Some(1920));
         assert_eq!(encoder.crf, 28);
@@ -413,7 +484,7 @@ mod tests {
             "input.mp4",
             Some(Path::new("/output")),
             None,
-            24,
+            24.0,
             &metadata,
         )
         .unwrap();
@@ -437,9 +508,10 @@ mod tests {
     #[test]
     fn test_video_encoder_gop() {
         let metadata = sample_metadata(1920, 1080, 30.0);
-        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24, &metadata).unwrap();
+        let encoder = VideoEncoder::new(1, "input.mp4", None, None, 24.0, &metadata).unwrap();
         assert_eq!(encoder.gop(), 240);
-        let encoder_no_fps = VideoEncoder::new(1, "input.mp4", None, None, 60, &metadata).unwrap();
+        let encoder_no_fps =
+            VideoEncoder::new(1, "input.mp4", None, None, 60.0, &metadata).unwrap();
         assert_eq!(encoder_no_fps.gop(), 300);
     }
 }

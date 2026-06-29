@@ -22,7 +22,7 @@ pub enum Resolution {
     Qhd,
     /// 1440x2560 (2K QHD 竖屏)
     Vqhd,
-    /// 1920x1080 (1080p 横屏)
+    /// 1920x1080 (1080p 横屏)，默认参数，如要更改请变更 `EvArgs`
     #[default]
     Fhd,
     /// 1080x1920 (1080p 竖屏)

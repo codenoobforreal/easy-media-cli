@@ -103,3 +103,53 @@ pub fn run_cli(event_bus: Arc<dyn EventBus>) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use insta::assert_debug_snapshot;
+
+    mod cli_definition {
+        use super::*;
+
+        #[test]
+        fn verify_cli_definition() {
+            Cli::command().debug_assert();
+        }
+    }
+
+    mod global_flags {
+        use super::*;
+
+        #[test]
+        fn version_flag_works() {
+            let err = Cli::try_parse_from(["easy-media-cli", "--version"]).unwrap_err();
+            assert_debug_snapshot!(err.kind(),@"DisplayVersion");
+        }
+
+        #[test]
+        fn root_help_flag_works() {
+            let err = Cli::try_parse_from(["easy-media-cli", "--help"]).unwrap_err();
+            assert_debug_snapshot!(err.kind(),@"DisplayHelp");
+        }
+
+        #[test]
+        fn unknown_subcommand_rejected() {
+            let err = Cli::try_parse_from(["easy-media-cli", "unknown"]).unwrap_err();
+            assert_debug_snapshot!(err.kind(),@"InvalidSubcommand");
+        }
+
+        #[test]
+        fn no_subcommand_returns_error() {
+            let err = Cli::try_parse_from(["easy-media-cli"]).unwrap_err();
+            assert_debug_snapshot!(err.kind(),@"DisplayHelpOnMissingArgumentOrSubcommand");
+        }
+
+        #[test]
+        fn root_help_text_stable_snapshot() {
+            let err = Cli::try_parse_from(["easy-media-cli", "--help"]).unwrap_err();
+            assert_debug_snapshot!(err.kind(),@"DisplayHelp");
+        }
+    }
+}
