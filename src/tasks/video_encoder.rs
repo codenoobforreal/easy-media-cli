@@ -340,11 +340,11 @@ impl CommandTask for VideoEncoder {
 
 fn resolution_to_crf(resolution: Resolution) -> u8 {
     match resolution.pixels() {
-        p if p >= Resolution::Uhd.pixels() => 22, // 4K
-        p if p >= Resolution::Qhd.pixels() => 24, // 1440p
-        p if p >= Resolution::Fhd.pixels() => 28, // 1080p
+        p if p >= Resolution::Uhd.pixels() => 38, // 4K
+        p if p >= Resolution::Qhd.pixels() => 34, // 1440p
+        p if p >= Resolution::Fhd.pixels() => 32, // 1080p
         p if p >= Resolution::Hd.pixels() => 30,  // 720p
-        _ => 32,
+        _ => 26,
     }
 }
 
@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(encoder.fps, Some(24.0));
         assert_eq!(encoder.scaled_width, None);
         assert_eq!(encoder.scaled_height, None);
-        assert_eq!(encoder.crf, 28);
+        assert_eq!(encoder.crf, 32);
         assert_eq!(encoder.preset, 4);
     }
 
@@ -474,7 +474,7 @@ mod tests {
         .unwrap();
         assert_eq!(encoder.scaled_width, None);
         assert_eq!(encoder.scaled_height, None);
-        assert_eq!(encoder.crf, 28);
+        assert_eq!(encoder.crf, 32);
     }
 
     #[test]
@@ -491,7 +491,7 @@ mod tests {
         .unwrap();
         assert_eq!(encoder.scaled_width, None);
         assert_eq!(encoder.scaled_height, Some(1920));
-        assert_eq!(encoder.crf, 28);
+        assert_eq!(encoder.crf, 32);
         assert_eq!(encoder.preset, 4);
     }
 
@@ -522,7 +522,7 @@ mod tests {
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
         );
-        assert_debug_snapshot!(args.join(OsStr::new(" ")),@r#""-v error -progress pipe:1 -i input.mp4 -c:v libsvtav1 -preset 4 -crf 28 -g 240 -pix_fmt yuv420p10le -svtav1-params tune=0:film-grain=8:qp-scale-compress-strength=1 -c:a copy -vf fps=24""#);
+        assert_debug_snapshot!(args.join(OsStr::new(" ")),@r#""-v error -progress pipe:1 -i input.mp4 -c:v libsvtav1 -preset 4 -crf 32 -g 240 -pix_fmt yuv420p10le -svtav1-params tune=0:film-grain=8:qp-scale-compress-strength=1 -c:a copy -vf fps=24""#);
     }
 
     #[test]
