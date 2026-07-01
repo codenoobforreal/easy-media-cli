@@ -204,7 +204,7 @@ impl VideoEncoder {
         let preset = resolution_to_preset(effective_resolution);
 
         let (scaled_width, scaled_height) = if do_scale {
-            let orientation = target_resolution.get_orientation();
+            let orientation = source_resolution.get_orientation();
             match orientation {
                 Orientation::Landscape => {
                     let width = target_resolution.get_primary_dimension();
@@ -259,19 +259,26 @@ impl CommandTask for VideoEncoder {
             .map_or("Encode video".to_string(), |s| format!("Encode video: {s}"))
     }
 
+    #[allow(
+        clippy::cast_lossless,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation
+    )]
     fn config(&self) -> TaskConfig {
         let resolution = match (self.scaled_width, self.scaled_height) {
-            (Some(w), None) => Resolution::new(
-                w,
-                w / (self.origin.resolution.width() / self.origin.resolution.height()),
-            )
-            .unwrap(),
+            (Some(w), None) => {
+                let src_w = self.origin.resolution.width() as f64;
+                let src_h = self.origin.resolution.height() as f64;
+                let h = ((w as f64 * src_h / src_w) / 2.0).round() as u16 * 2;
+                Resolution::new(w, h).expect("Valid calculated resolution")
+            }
 
-            (None, Some(h)) => Resolution::new(
-                h,
-                h * (self.origin.resolution.width() / self.origin.resolution.height()),
-            )
-            .unwrap(),
+            (None, Some(h)) => {
+                let src_w = self.origin.resolution.width() as f64;
+                let src_h = self.origin.resolution.height() as f64;
+                let w = ((h as f64 * src_w / src_h) / 2.0).round() as u16 * 2;
+                Resolution::new(w, h).expect("Valid calculated resolution")
+            }
 
             _ => self.origin.resolution,
         };
@@ -526,5 +533,34 @@ mod tests {
         let encoder_no_fps =
             VideoEncoder::new(1, "input.mp4", None, None, 60.0, &metadata).unwrap();
         assert_eq!(encoder_no_fps.gop(), 300);
+    }
+
+    #[test]
+    fn test_config() {
+        let metadata = sample_metadata(1920, 1080, 30.0, Duration::ZERO, 0);
+        let encoder =
+            VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Hd), 24.0, &metadata).unwrap();
+        assert_eq!(
+            encoder.config(),
+            TaskConfig::VideoEncoder {
+                resolution: Resolution::Hd,
+                preset: 6,
+                crf: 30,
+                fps: 24.0
+            }
+        );
+
+        let metadata = sample_metadata(1440, 2560, 60.0, Duration::ZERO, 0);
+        let encoder =
+            VideoEncoder::new(1, "input.mp4", None, Some(Resolution::Hd), 30.0, &metadata).unwrap();
+        assert_eq!(
+            encoder.config(),
+            TaskConfig::VideoEncoder {
+                resolution: Resolution::Vhd,
+                preset: 6,
+                crf: 30,
+                fps: 30.0
+            }
+        );
     }
 }
