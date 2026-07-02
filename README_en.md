@@ -58,7 +58,7 @@ cargo build --release
 
 ## Usage
 
-The current release includes two subcommands: `scs` (scene‑snap thumbnail generator) and `ve` (personal SVT‑AV1 video encoder).
+The current release includes two subcommands: `scs` (scene‑snap thumbnail generator) and `ev` (personal SVT‑AV1 video encoder).
 
 ### Basic syntax
 
@@ -94,12 +94,12 @@ easy-media-cli scs -i ./media -w 480 -d 3
 
 1. Encode a single video, cap resolution to 720p and framerate to 24
 ```bash
-easy-media-cli encode -i demo.mp4 -r 1280x720 -f 24
+easy-media-cli ev -i demo.mp4 -r 1280x720 -f 24
 ```
 
 2. Batch encode a directory, output to a custom folder
 ```bash
-easy-media-cli encode -i ./raw_videos -o ./encoded -r 1920x1080
+easy-media-cli ev -i ./raw_videos -o ./encoded -r 1920x1080
 ```
 
 ## Development

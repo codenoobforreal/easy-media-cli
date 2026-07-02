@@ -58,7 +58,7 @@ cargo build --release
 
 ## 使用说明
 
-目前提供两个子命令：`scs`（场景检测缩略图生成）与 `ve`（个人 SVT‑AV1 视频编码）。
+目前提供两个子命令：`scs`（场景检测缩略图生成）与 `ev`（个人 SVT‑AV1 视频编码）。
 
 ### 基础语法
 
@@ -94,12 +94,12 @@ easy-media-cli scs -i ./media -w 480 -d 3
 
 1. 编码单个视频，限制分辨率至 720p 且帧率不超过 24
 ```bash
-easy-media-cli encode -i demo.mp4 -r 1280x720 -f 24
+easy-media-cli ev -i demo.mp4 -r 1280x720 -f 24
 ```
 
 2. 批量编码目录，输出到指定文件夹
 ```bash
-easy-media-cli encode -i ./raw_videos -o ./encoded -r 1920x1080
+easy-media-cli ev -i ./raw_videos -o ./encoded -r 1920x1080
 ```
 
 ## 开发指南
