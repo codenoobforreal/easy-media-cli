@@ -58,7 +58,7 @@ cargo build --release
 
 ## Usage
 
-The current release includes two subcommands: `scs` (scene‑snap thumbnail generator) and `ve` (personal SVT‑AV1 video encoder).
+The current release includes two subcommands: `scs` (scene‑snap thumbnail generator) and `ev` (personal SVT‑AV1 video encoder).
 
 ### Basic syntax
 
